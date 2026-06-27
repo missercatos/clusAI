@@ -1,0 +1,371 @@
+use crate::error::{AgentError, AgentResult};
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AgentConfig {
+    #[serde(default)]
+    pub agent: AgentSettings,
+
+    #[serde(default)]
+    pub providers: Vec<ProviderConfig>,
+
+    #[serde(default)]
+    pub mcp_servers: Vec<McpServerConfig>,
+
+    #[serde(default)]
+    pub tools: ToolSettings,
+
+    #[serde(default)]
+    pub blueprint: BlueprintSettings,
+
+    #[serde(default)]
+    pub roundtable: RoundtableSettings,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentSettings {
+    #[serde(default = "default_system_prompt")]
+    pub system_prompt: String,
+
+    #[serde(default = "default_max_history")]
+    pub max_history: usize,
+
+    #[serde(default = "default_mode")]
+    pub default_mode: ChatMode,
+
+    #[serde(default = "default_provider")]
+    pub default_provider: String,
+
+    #[serde(default)]
+    pub working_dir: Option<PathBuf>,
+}
+
+impl Default for AgentSettings {
+    fn default() -> Self {
+        Self {
+            system_prompt: default_system_prompt(),
+            max_history: default_max_history(),
+            default_mode: default_mode(),
+            default_provider: default_provider(),
+            working_dir: None,
+        }
+    }
+}
+
+fn default_system_prompt() -> String {
+    "You are an AI coding assistant. You help users write, review, and debug code.\n\
+     Use tools when you need to read files, search code, or execute shell commands.\n\
+     Always explain your reasoning briefly before writing code.".into()
+}
+fn default_max_history() -> usize { 50 }
+fn default_mode() -> ChatMode { ChatMode::Single }
+fn default_provider() -> String { "default".into() }
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ChatMode {
+    Single,
+    Roundtable,
+    Blueprint,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderConfig {
+    pub id: String,
+
+    #[serde(rename = "type")]
+    pub provider_type: ProviderType,
+
+    pub model: String,
+
+    #[serde(default)]
+    pub api_key: Option<String>,
+
+    #[serde(default)]
+    pub api_key_env: Option<String>,
+
+    #[serde(default)]
+    pub system_prompt: Option<String>,
+
+    #[serde(default)]
+    pub base_url: Option<String>,
+
+    #[serde(default = "default_temperature")]
+    pub temperature: f32,
+
+    #[serde(default = "default_max_tokens")]
+    pub max_tokens: u32,
+}
+
+fn default_temperature() -> f32 { 0.7 }
+fn default_max_tokens() -> u32 { 8192 }
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ProviderType {
+    OpenAI,
+    Anthropic,
+    Ollama,
+    DeepSeek,
+    #[serde(rename = "openai-compatible")]
+    OpenAICompatible,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpServerConfig {
+    pub name: String,
+
+    #[serde(default)]
+    pub enabled: bool,
+
+    #[serde(rename = "type")]
+    pub server_type: McpServerType,
+
+    #[serde(default)]
+    pub command: Vec<String>,
+
+    #[serde(default)]
+    pub url: Option<String>,
+
+    #[serde(default)]
+    pub args: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum McpServerType {
+    Local,
+    Remote,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct ToolSettings {
+    #[serde(default = "default_true")]
+    pub read_enabled: bool,
+
+    #[serde(default = "default_true")]
+    pub write_enabled: bool,
+
+    #[serde(default = "default_true")]
+    pub edit_enabled: bool,
+
+    #[serde(default = "default_true")]
+    pub grep_enabled: bool,
+
+    #[serde(default = "default_true")]
+    pub glob_enabled: bool,
+
+    #[serde(default)]
+    pub bash_enabled: bool,
+
+    #[serde(default)]
+    pub allow_paths: Vec<PathBuf>,
+
+    #[serde(default)]
+    pub deny_paths: Vec<PathBuf>,
+}
+
+fn default_true() -> bool { true }
+
+impl Default for BlueprintSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            default_mode: BlueprintMode::Orchestrator,
+            architect: None,
+            reviewer: None,
+            workers: vec![],
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlueprintSettings {
+    #[serde(default)]
+    pub enabled: bool,
+
+    #[serde(default = "default_blueprint_mode")]
+    pub default_mode: BlueprintMode,
+
+    #[serde(default)]
+    pub architect: Option<String>,
+
+    #[serde(default)]
+    pub reviewer: Option<String>,
+
+    #[serde(default)]
+    pub workers: Vec<WorkerConfig>,
+}
+
+fn default_blueprint_mode() -> BlueprintMode { BlueprintMode::Orchestrator }
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum BlueprintMode {
+    Orchestrator,
+    Debate,
+    Consensus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkerConfig {
+    pub provider: String,
+
+    #[serde(default)]
+    pub languages: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RoundtableSettings {
+    #[serde(default)]
+    pub order: Vec<String>,
+
+    #[serde(default)]
+    pub share_context: bool,
+}
+
+impl AgentConfig {
+    const PROJECT_FILES: &[&str] = &[".clusai.toml", "clusai.toml"];
+    const USER_FILE: &str = "config.toml";
+
+    pub fn load() -> AgentResult<Self> {
+        let mut config = Self::default();
+
+        if let Some(user_path) = Self::user_config_path() {
+            if user_path.exists() {
+                let user_raw = std::fs::read_to_string(&user_path)
+                    .map_err(|e| AgentError::Config(format!("cannot read {:?}: {e}", user_path)))?;
+                let user_cfg: Self = toml::from_str(&user_raw)?;
+                config.merge(user_cfg);
+            }
+        }
+
+        for name in Self::PROJECT_FILES {
+            let project_path = Path::new(name);
+            if project_path.exists() {
+                let project_raw = std::fs::read_to_string(project_path)
+                    .map_err(|e| AgentError::Config(format!("cannot read {:?}: {e}", project_path)))?;
+                let project_cfg: Self = toml::from_str(&project_raw)?;
+                config.merge(project_cfg);
+                break; // only load the first matching project config
+            }
+        }
+
+        config.validate()?;
+        Ok(config)
+    }
+
+    pub fn load_from(path: &Path) -> AgentResult<Self> {
+        let raw = std::fs::read_to_string(path)
+            .map_err(|e| AgentError::Config(format!("cannot read {path:?}: {e}")))?;
+        let config: Self = toml::from_str(&raw)?;
+        config.validate()?;
+        Ok(config)
+    }
+
+    fn user_config_path() -> Option<PathBuf> {
+        dirs::config_dir().map(|d| d.join("clusai").join(Self::USER_FILE))
+    }
+
+    fn merge(&mut self, other: Self) {
+        self.providers.extend(other.providers);
+        self.mcp_servers.extend(other.mcp_servers);
+
+        if !other.blueprint.workers.is_empty() || other.blueprint.enabled {
+            self.blueprint.enabled = other.blueprint.enabled;
+            self.blueprint.default_mode = other.blueprint.default_mode;
+        }
+        self.blueprint.workers.extend(other.blueprint.workers);
+
+        if !other.roundtable.order.is_empty() {
+            self.roundtable.order = other.roundtable.order;
+        }
+        self.roundtable.share_context = other.roundtable.share_context;
+
+        if other.agent.system_prompt != AgentConfig::default().agent.system_prompt {
+            self.agent.system_prompt = other.agent.system_prompt;
+        }
+        if other.agent.max_history != 50 {
+            self.agent.max_history = other.agent.max_history;
+        }
+        if other.agent.default_provider != "default" {
+            self.agent.default_provider = other.agent.default_provider;
+        }
+        if other.agent.default_mode != ChatMode::Single {
+            self.agent.default_mode = other.agent.default_mode;
+        }
+        if other.agent.working_dir.is_some() {
+            self.agent.working_dir = other.agent.working_dir;
+        }
+
+        if other.blueprint.architect.is_some() {
+            self.blueprint.architect = other.blueprint.architect;
+        }
+        if other.blueprint.reviewer.is_some() {
+            self.blueprint.reviewer = other.blueprint.reviewer;
+        }
+
+        if other.tools != ToolSettings::default() {
+            self.tools = other.tools;
+        }
+    }
+
+    fn validate(&self) -> AgentResult<()> {
+        if self.providers.is_empty() {
+            return Err(AgentError::Config("at least one provider must be configured".into()));
+        }
+
+        for p in &self.providers {
+            if p.id.is_empty() {
+                return Err(AgentError::Config("provider id must not be empty".into()));
+            }
+            if p.model.is_empty() {
+                return Err(AgentError::Config(format!("provider '{}' must specify a model", p.id)));
+            }
+            if p.provider_type != ProviderType::Ollama
+                && p.api_key.is_none()
+                && p.api_key_env.is_none()
+            {
+                return Err(AgentError::Config(format!(
+                    "provider '{}' requires api_key or api_key_env",
+                    p.id
+                )));
+            }
+        }
+
+        if self.agent.default_provider != "default" {
+            let ids: Vec<&str> = self.providers.iter().map(|p| p.id.as_str()).collect();
+            if !ids.contains(&self.agent.default_provider.as_str()) {
+                return Err(AgentError::Config(format!(
+                    "default_provider '{}' not found in providers list",
+                    self.agent.default_provider
+                )));
+            }
+        }
+
+        for provider_id in &self.roundtable.order {
+            let found = self.providers.iter().any(|p| &p.id == provider_id);
+            if !found {
+                return Err(AgentError::Config(format!(
+                    "roundtable order references unknown provider '{}'",
+                    provider_id
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn first_provider_id(&self) -> &str {
+        if self.agent.default_provider != "default" {
+            &self.agent.default_provider
+        } else {
+            &self.providers[0].id
+        }
+    }
+
+    pub fn find_provider(&self, id: &str) -> Option<&ProviderConfig> {
+        self.providers.iter().find(|p| p.id == id)
+    }
+}

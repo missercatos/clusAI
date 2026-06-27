@@ -1,0 +1,15 @@
+[package]
+name = "ai-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Minimal CLI frontend for ai-core — zero dependencies beyond ai-core"
+
+[dependencies]
+ai-core = { path = "../ai-core" }
+tokio.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+rustyline = "15"
+atty = "0.2"

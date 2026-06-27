@@ -1,0 +1,2 @@
+futures::stream::FilterMap<impl Stream<Item = Result<bytes::bytes::Bytes, reqwest::Error>>, std::option::Option<Result<LlmChunk, AgentError>>, {closure@crates/ai-core/src/provider/openai.rs:98:43: 98:55}>
+Pin<Box<futures::stream::FilterMap<impl Stream<Item = Result<bytes::bytes::Bytes, reqwest::Error>>, std::option::Option<Result<LlmChunk, AgentError>>, {closure@crates/ai-core/src/provider/openai.rs:98:43: 98:55}>>>

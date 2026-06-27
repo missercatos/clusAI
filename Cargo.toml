@@ -1,0 +1,31 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/ai-core",
+    "crates/ai-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/user/clusAI"
+
+[workspace.dependencies]
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+reqwest = { version = "0.12", features = ["json", "stream"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+async-trait = "0.1"
+thiserror = "2"
+futures = "0.3"
+similar = "3"
+glob-match = "0.2"
+regex = "1"
+dirs = "6"
+uuid = { version = "1", features = ["v4"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"

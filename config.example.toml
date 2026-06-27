@@ -1,0 +1,83 @@
+# ~/.config/clusai/config.toml
+# User-level default config. Project-level ./.clusai.toml overrides this.
+
+[agent]
+system_prompt = """You are an AI coding assistant. You help users write, review, and debug code.
+Use tools when you need to read files, search code, or execute shell commands.
+Always explain your reasoning briefly before writing code."""
+max_history = 50
+default_provider = "openai"
+default_mode = "single"
+
+# ====== LLM Providers ======
+
+[[providers]]
+id = "openai"
+type = "openai"
+model = "gpt-4-turbo"
+api_key = "sk-xxxxxxxxxxxxxxxxxxxx"   # 直接写 key
+# api_key_env = "OPENAI_API_KEY"      # 或通过环境变量
+
+# [[providers]]
+# id = "claude"
+# type = "anthropic"
+# model = "claude-sonnet-4-20250514"
+# api_key = "sk-ant-xxxxxxxxxxxx"
+# temperature = 0.5
+# max_tokens = 8192
+
+# [[providers]]
+# id = "local"
+# type = "ollama"
+# model = "qwen3:32b"
+# base_url = "http://localhost:11434"
+# temperature = 0.7
+# max_tokens = 4096
+
+# [[providers]]
+# id = "deepseek"
+# type = "deepseek"
+# model = "deepseek-coder"
+# api_key = "sk-xxxxxxxxxxxx"
+# temperature = 0.7
+# max_tokens = 8192
+
+# ====== Tool Settings ======
+
+[tools]
+read_enabled = true
+write_enabled = true
+grep_enabled = true
+glob_enabled = true
+bash_enabled = false       # disable for safety, enable as needed
+allow_paths = []           # empty = working directory only
+deny_paths = ["/etc", "/sys", "/proc", "/boot"]
+
+# ====== Roundtable ======
+
+[roundtable]
+# order = ["openai", "claude", "local"]
+# Leave empty to use all providers in config order
+
+# ====== Blueprint (multi-model collaboration) ======
+
+[blueprint]
+enabled = false
+default_mode = "orchestrator"
+architect = "openai"
+reviewer = "openai"
+
+# [[blueprint.workers]]
+# provider = "claude"
+# [[blueprint.workers]]
+# provider = "deepseek"
+# [[blueprint.workers]]
+# provider = "local"
+
+# ====== MCP Servers ======
+
+# [[mcp_servers]]
+# name = "filesystem"
+# type = "local"
+# enabled = true
+# command = ["npx", "-y", "@anthropic/mcp-filesystem", "."]
