@@ -6,13 +6,15 @@
 
 # ai-core
 
-纯 Rust 多 AI 智能体内核。管理 LLM 生命周期、共享世界状态、流式事件广播。
+A pure-Rust multi-AI agent kernel. Manages LLM lifecycles, shared world state, and streaming event broadcast.
 
-**不绑定任何 UI 框架**——前端用终端、TUI、GUI、Web 任意技术栈均可接入。
+**UI-agnostic** — frontends can be built with any stack: terminal, TUI, GUI, Web.
+
+[中文文档](README_CN.md)
 
 ---
 
-## 快速开始
+## Quick Start
 
 ```toml
 # ./.clusai.toml
@@ -24,14 +26,14 @@ id = "alice"
 type = "deepseek"
 model = "deepseek-chat"
 api_key = "sk-xxx"
-system_prompt = "你是 Alice，一个乐观的助手。"
+system_prompt = "You are Alice, an optimistic assistant."
 
 [[providers]]
 id = "bob"
 type = "deepseek"
 model = "deepseek-chat"
 api_key = "sk-xxx"
-system_prompt = "你是 Bob，一个谨慎的助手。"
+system_prompt = "You are Bob, a cautious assistant."
 
 [roundtable]
 share_context = true
@@ -47,7 +49,7 @@ async fn main() -> anyhow::Result<()> {
     space.add_agent("alice", config)?;
 
     let mut events = space.subscribe();
-    space.think_all("你们好，请自我介绍。").await?;
+    space.think_all("Hello, please introduce yourselves.").await?;
 
     while let Ok(event) = events.recv().await {
         if let SpaceEvent::TextDelta { agent_id, content } = event {
@@ -60,73 +62,73 @@ async fn main() -> anyhow::Result<()> {
 
 ---
 
-## 目录
+## Table of Contents
 
-1. [配置文件](#配置文件)
-2. [Space 模式（多 Agent 并行）](#space-模式)
-3. [AgentHandle 模式（单 Agent / 轮询）](#agenthandle-模式)
-4. [世界状态](#世界状态)
-5. [自定义工具](#自定义工具)
-6. [会话持久化](#会话持久化)
-7. [事件参考](#事件参考)
+1. [Configuration](#configuration)
+2. [Space Mode (Multi-Agent Parallel)](#space-mode)
+3. [AgentHandle Mode (Single / Roundtable)](#agenthandle-mode)
+4. [World State](#world-state)
+5. [Custom Tools](#custom-tools)
+6. [Session Persistence](#session-persistence)
+7. [Event Reference](#event-reference)
 
 ---
 
-## 配置文件
+## Configuration
 
-配置存在 `~/.config/clusai/config.toml`（全局）或 `./.clusai.toml`（项目级，优先级更高）。
+Config files at `~/.config/clusai/config.toml` (global) or `./.clusai.toml` (project-level, takes precedence).
 
-### 完整选项
+### Full Options
 
 ```toml
-# ── 全局 ──────────────────────────
+# ── Global ──────────────────────────
 [agent]
 system_prompt = "You are an AI coding assistant."
-max_history = 50                  # 最大消息数，默认 50
-default_provider = "deepseek"     # 单 Agent 模式默认用谁
+max_history = 50                  # Max messages to keep, default 50
+default_provider = "deepseek"     # Which provider to use in single-agent mode
 default_mode = "roundtable"       # single | roundtable | blueprint
-working_dir = "/path/to/project"  # 工具工作目录，默认当前目录
+working_dir = "/path/to/project"  # Working dir for tools, defaults to cwd
 
-# ── LLM 模型 ──────────────────────
+# ── LLM Providers ──────────────────
 [[providers]]
-id = "my-ai"                      # 唯一标识
+id = "my-ai"                      # Unique identifier
 type = "deepseek"                 # openai | anthropic | deepseek | ollama | openai-compatible
-model = "deepseek-chat"           # 模型名
-api_key = "sk-xxx"                # 直接写 key（与 api_key_env 二选一）
-# api_key_env = "DEEPSEEK_KEY"    # 读环境变量
-system_prompt = "你是..."         # 该模型专属设定，覆盖 [agent]
-base_url = "https://api.xxx.com"  # 自建代理
+model = "deepseek-chat"           # Model name
+api_key = "sk-xxx"                # Direct key (or use api_key_env)
+# api_key_env = "DEEPSEEK_KEY"    # Environment variable name
+system_prompt = "You are..."      # Provider-specific prompt, overrides [agent]
+base_url = "https://api.xxx.com"  # Self-hosted proxy
 temperature = 0.7                 # 0.0–2.0
 max_tokens = 8192
 
-# ── 工具权限 ──────────────────────
+# ── Tool Permissions ───────────────
 [tools]
-read_enabled   = true   # 读文件
-write_enabled  = true   # 写新文件
-edit_enabled   = true   # 编辑已有文件
-grep_enabled   = true   # 代码搜索
-glob_enabled   = true   # 文件名搜索
-bash_enabled   = false  # 终端命令（危险，默认关）
-allow_paths    = []     # 白名单，空=工作目录
+read_enabled   = true   # Read files
+write_enabled  = true   # Write new files
+edit_enabled   = true   # Edit existing files
+grep_enabled   = true   # Search code
+glob_enabled   = true   # Search file names
+bash_enabled   = false  # Shell commands (dangerous, off by default)
+allow_paths    = []     # Allowed paths, empty = working dir
 deny_paths     = ["/etc", "/proc"]
 
-# ── 多轮对话 ──────────────────────
+# ── Roundtable ──────────────────────
 [roundtable]
-order = ["alice", "bob"]          # 发言顺序
-share_context = true              # AI 互相看到对方发言
+order = ["alice", "bob"]          # Speaking order
+share_context = true              # AIs see each other's messages
 
-# ── 蓝图协作 ──────────────────────
+# ── Blueprint Collaboration ────────
 [blueprint]
 enabled = false
 default_mode = "orchestrator"     # orchestrator | debate | consensus
-architect = "deepseek"            # 架构师
-reviewer = "deepseek"             # 审查者
+architect = "deepseek"            # Architect provider
+reviewer = "deepseek"             # Reviewer provider
 
 [[blueprint.workers]]
 provider = "claude"
 languages = ["rust", "python"]
 
-# ── MCP 插件 ──────────────────────
+# ── MCP Plugins ─────────────────────
 [[mcp_servers]]
 name = "filesystem"
 type = "local"                    # local | remote
@@ -134,97 +136,97 @@ enabled = true
 command = ["npx", "-y", "@anthropic/mcp-filesystem", "."]
 ```
 
-### 字段速查
+### Field Reference
 
 <details>
 <summary><b>[agent]</b></summary>
 
-| 字段 | 类型 | 默认 | 说明 |
-|------|------|------|------|
-| `system_prompt` | string | 内置 | 全局 prompt，provider 未设时使用 |
-| `max_history` | int | 50 | 最大保留消息数 |
-| `default_provider` | string | "default" | 单 Agent 模式默认用谁 |
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `system_prompt` | string | built-in | Global prompt, used when provider has none |
+| `max_history` | int | 50 | Max messages retained |
+| `default_provider` | string | "default" | Default provider for single-agent mode |
 | `default_mode` | string | "single" | single / roundtable / blueprint |
-| `working_dir` | path | 当前目录 | 工具执行的工作目录 |
+| `working_dir` | path | cwd | Working directory for tools |
 
 </details>
 
 <details>
 <summary><b>[[providers]]</b></summary>
 
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `id` | string | ✅ | 唯一标识 |
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | ✅ | Unique identifier |
 | `type` | string | ✅ | openai / anthropic / deepseek / ollama / openai-compatible |
-| `model` | string | ✅ | 模型名 |
-| `api_key` | string | * | API key（与 api_key_env 二选一） |
-| `api_key_env` | string | * | 环境变量名 |
-| `system_prompt` | string | — | 专属设定 |
-| `base_url` | string | — | 代理地址 |
-| `temperature` | float | 0.7 | 采样温度 |
-| `max_tokens` | int | 8192 | 最大输出 token |
+| `model` | string | ✅ | Model name |
+| `api_key` | string | * | API key (mutually exclusive with api_key_env) |
+| `api_key_env` | string | * | Env var name |
+| `system_prompt` | string | — | Provider-specific prompt |
+| `base_url` | string | — | Proxy URL |
+| `temperature` | float | 0.7 | Sampling temperature |
+| `max_tokens` | int | 8192 | Max output tokens |
 
-\* Ollama 不需要 key。
+\* Ollama does not require a key.
 
 </details>
 
 <details>
 <summary><b>[tools]</b></summary>
 
-| 字段 | 类型 | 默认 | 功能 |
-|------|------|------|------|
-| `read_enabled` | bool | true | 读文件 |
-| `write_enabled` | bool | true | 写新文件 |
-| `edit_enabled` | bool | true | 编辑文件 |
-| `grep_enabled` | bool | true | 代码搜索 |
-| `glob_enabled` | bool | true | 文件名搜索 |
-| `bash_enabled` | bool | false | 执行命令 |
-| `allow_paths` | []string | [] | 白名单路径 |
-| `deny_paths` | []string | [] | 黑名单路径 |
+| Field | Type | Default | Purpose |
+|-------|------|---------|---------|
+| `read_enabled` | bool | true | Read files |
+| `write_enabled` | bool | true | Write new files |
+| `edit_enabled` | bool | true | Edit existing files |
+| `grep_enabled` | bool | true | Search code |
+| `glob_enabled` | bool | true | Search file names |
+| `bash_enabled` | bool | false | Run shell commands |
+| `allow_paths` | []string | [] | Allowed paths |
+| `deny_paths` | []string | [] | Denied paths |
 
 </details>
 
 <details>
 <summary><b>[roundtable]</b></summary>
 
-| 字段 | 类型 | 默认 | 说明 |
-|------|------|------|------|
-| `order` | []string | [] | 发言顺序 |
-| `share_context` | bool | false | AI 互相看到对方 |
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `order` | []string | [] | Speaking order |
+| `share_context` | bool | false | AIs see each other |
 
 </details>
 
 <details>
 <summary><b>[blueprint]</b></summary>
 
-| 字段 | 类型 | 默认 | 说明 |
-|------|------|------|------|
-| `enabled` | bool | false | 启用 |
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | false | Enable |
 | `default_mode` | string | orchestrator | orchestrator / debate / consensus |
-| `architect` | string | — | 架构师 provider |
-| `reviewer` | string | — | 审查者 provider |
-| `workers` | []worker | [] | 执行者列表 |
+| `architect` | string | — | Architect provider |
+| `reviewer` | string | — | Reviewer provider |
+| `workers` | []worker | [] | Worker list |
 
 </details>
 
 <details>
 <summary><b>[[mcp_servers]]</b></summary>
 
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `name` | string | ✅ | 名称 |
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | ✅ | Name |
 | `type` | string | ✅ | local / remote |
-| `enabled` | bool | — | 启用 |
-| `command` | []string | — | 启动命令 |
-| `url` | string | — | 远程地址 |
+| `enabled` | bool | — | Enable |
+| `command` | []string | — | Launch command |
+| `url` | string | — | Remote address |
 
 </details>
 
 ---
 
-## Space 模式
+## Space Mode
 
-多 Agent 并行协作。纯 async，不绑定运行时。
+Multi-agent parallel collaboration. Pure async, runtime-agnostic.
 
 ```rust
 use ai_core::space::{Space, SpaceEvent};
@@ -235,12 +237,12 @@ space.add_agent("bob", config)?;
 
 let mut events = space.subscribe();
 
-// 三种调用粒度
-space.think_all("全部 AI 思考同一问题").await?;
-space.think_one("alice", "只让 alice 思考").await?;
-space.think_subset(&["a", "b"], "子集思考").await?;
+// Three granularities
+space.think_all("All AIs think about the same question").await?;
+space.think_one("alice", "Only alice thinks").await?;
+space.think_subset(&["a", "b"], "Subset thinks").await?;
 
-// 处理流式事件
+// Handle streaming events
 while let Ok(e) = events.recv().await {
     match e {
         SpaceEvent::TextDelta { agent_id, content } => print!("[{agent_id}] {content}"),
@@ -254,29 +256,29 @@ while let Ok(e) = events.recv().await {
 ### Space API
 
 ```rust
-// Agent
+// Agents
 space.add_agent("id", config)?;
 space.remove_agent("id");
 space.register_tool("agent_id", Arc::new(tool))?;
 
-// 世界状态
+// World state
 space.worlds().create("name").await;
 space.worlds().set("name", "key", json!(v)).await;
 space.worlds().get("name", "key").await;
 
-// 事件
+// Events
 space.subscribe();  // broadcast::Receiver<SpaceEvent>
 ```
 
 ---
 
-## AgentHandle 模式
+## AgentHandle Mode
 
-单 Agent 或轮询对话，适合简单问答。
+Single-agent or roundtable dialogue, suited for simple Q&A.
 
 ```rust
 let mut agent = AgentHandle::spawn(config).await?;
-agent.send_message("你好")?;
+agent.send_message("Hello")?;
 
 while let Ok(e) = agent.recv().await {
     match e {
@@ -290,9 +292,9 @@ agent.shutdown();
 
 ---
 
-## 世界状态
+## World State
 
-多 KV 存储空间，Agent 通过工具读写，前端直接操作。
+Multi-KV storage space. Agents read/write via tools, frontends operate directly.
 
 ```rust
 let w = space.worlds();
@@ -303,13 +305,13 @@ let hp = w.get("battlefield", "hp").await;
 let full = w.snapshot("battlefield").await;  // HashMap<String, Value>
 ```
 
-Agent 自带三个世界工具：`speak(text)` → `AgentSpeech` / `read_world(world, key)` / `write_world(world, key, value)` → `StateChanged`。
+Agents auto-register three world tools: `speak(text)` → `AgentSpeech` / `read_world(world, key)` / `write_world(world, key, value)` → `StateChanged`.
 
 ---
 
-## 自定义工具
+## Custom Tools
 
-Agent 通过 function calling 调用。前端实现 `Tool` trait 注册到 Space。
+Agents invoke tools via function calling. Frontends implement `Tool` trait and register with `Space`.
 
 ```rust
 use ai_core::tool::{Tool, ToolContext, ToolDef};
@@ -321,7 +323,7 @@ impl Tool for MyTool {
     fn def(&self) -> ToolDef {
         ToolDef {
             name: "attack".into(),
-            description: "攻击目标".into(),
+            description: "Attack a target".into(),
             parameters: json!({ "type": "object", "properties": { "target": { "type": "string" } }, "required": ["target"] }),
         }
     }
@@ -337,54 +339,54 @@ space.register_tool("alice", Arc::new(MyTool))?;
 
 ---
 
-## 会话持久化
+## Session Persistence
 
-纯 sync 文件读写，结果为标准 JSON，任何语言可直接解析。
+Pure sync file I/O. Output is standard JSON, parseable by any language.
 
 ```rust
 use ai_core::session::{Session, SessionStore};
 
 let store = SessionStore::new(dir);
 
-// 保存 → ~/.config/clusai/sessions/{id}.json
+// Save → ~/.config/clusai/sessions/{id}.json
 store.save(&session)?;
 
-// 加载
+// Load
 let session = store.load("id")?;
 
-// 浏览存档
+// Browse archives
 for meta in store.list()? {
-    println!("{} ({}条)", meta.id, meta.message_count);
+    println!("{} ({} messages)", meta.id, meta.message_count);
 }
 
-// 删除
+// Delete
 store.delete("id")?;
 ```
 
 ---
 
-## 事件参考
+## Event Reference
 
 ### SpaceEvent
 
-| 事件 | 字段 | 说明 |
-|------|------|------|
-| `AgentThinking` | `agent_id` | 开始思考 |
-| `TextDelta` | `agent_id, content` | 流式文本 |
-| `AgentFinished` | `agent_id, content` | 完成 |
-| `AgentSpeech` | `agent_id, text` | speak 工具触发 |
-| `ToolCallStart` | `agent_id, tool_name, args_preview` | 工具调用 |
-| `ToolCallEnd` | `agent_id, tool_name, succeeded, output_preview` | 工具结果 |
-| `StateChanged` | `world, key, value` | 世界写入 |
-| `AgentError` | `agent_id, message` | 错误 |
-| `ThinkComplete` | — | 本轮结束 |
+| Event | Fields | Description |
+|-------|--------|-------------|
+| `AgentThinking` | `agent_id` | Thinking started |
+| `TextDelta` | `agent_id, content` | Streaming text |
+| `AgentFinished` | `agent_id, content` | Completed |
+| `AgentSpeech` | `agent_id, text` | speak tool triggered |
+| `ToolCallStart` | `agent_id, tool_name, args_preview` | Tool call started |
+| `ToolCallEnd` | `agent_id, tool_name, succeeded, output_preview` | Tool call result |
+| `StateChanged` | `world, key, value` | World write |
+| `AgentError` | `agent_id, message` | Error |
+| `ThinkComplete` | — | Round finished |
 
-### KernelOutput（AgentHandle）
+### KernelOutput (AgentHandle)
 
-| 事件 | 说明 |
-|------|------|
-| `TextDelta` / `MessageComplete` | 流式输出 |
-| `RoundStart` / `RoundEnd` / `RoundtableComplete` | 轮询进度 |
-| `ToolCallStart` / `ToolCallEnd` / `PermissionRequest` | 工具与权限 |
-| `SessionSaved` / `SessionLoaded` / `SessionList` | 会话管理 |
-| `Error` | 错误 |
+| Event | Description |
+|-------|-------------|
+| `TextDelta` / `MessageComplete` | Streaming output |
+| `RoundStart` / `RoundEnd` / `RoundtableComplete` | Roundtable progress |
+| `ToolCallStart` / `ToolCallEnd` / `PermissionRequest` | Tools & permissions |
+| `SessionSaved` / `SessionLoaded` / `SessionList` | Session management |
+| `Error` | Error |
