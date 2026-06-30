@@ -13,6 +13,8 @@
 - **可自定义** — 接入任意 LLM 提供商（OpenAI、Anthropic、DeepSeek、Ollama、OpenAI-compatible），注册自定义工具，定义世界状态命名空间。
 - **开箱即用** — 自带 CLI 前端（`ai-cli`），与 `collaborate` GUI 直接配合。配置写在 `.clusai.toml`，终端用户零编译。
 - **多 Agent 协作** — 三种模式：single（单聊）、roundtable（轮询对话）、blueprint（编排代码生成）。
+- **角色文件** — `system_prompt_file` 指向 JSON 文件。支持简单格式 `{ "system_prompt": "..." }` 或结构化角色档案（自动从 personality/relationships/worldview 字段生成 prompt）。
+- **STDIO 服务** — `ai-serve` 通过 stdin/stdout 的一行 JSON 协议将内核暴露给外部前端。客户端零接线。
 
 [English](README.md)
 
@@ -168,6 +170,7 @@ ppt_generator = true
 | `api_key` | string | * | 密钥（或改用 `api_key_env`）。 |
 | `api_key_env` | string | * | 存放密钥的环境变量。 |
 | `system_prompt` | string | — | 该 provider 专属 prompt。 |
+| `system_prompt_file` | path | — | 从 JSON 文件加载角色设定。支持简单 `{"system_prompt":"..."}` 或结构化角色档案（自动生成 prompt）。 |
 | `base_url` | string | — | 代理地址。 |
 | `temperature` | float | 0.7 | 0.0–2.0。 |
 | `max_tokens` | int | 8192 | 最大输出 token。 |

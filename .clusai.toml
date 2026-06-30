@@ -1,83 +1,84 @@
-# ~/.config/clusai/config.toml
-# User-level default config. Project-level ./.clusai.toml overrides this.
+# ============================================================================
+# ai-core project config (./.clusai.toml)
+# ============================================================================
+# Every feature is listed here. Non-basic features default to false.
+# Uncomment and set to true to enable.
+# ============================================================================
+
+# ─── Global agent ─────────────────────────────────────────────────────────
 
 [agent]
-system_prompt = """You are an AI coding assistant. You help users write, review, and debug code.
-Use tools when you need to read files, search code, or execute shell commands.
-Always explain your reasoning briefly before writing code."""
+system_prompt = """You are an AI coding assistant. Help users write,
+review, and debug code. Use tools when necessary. Be concise."""
 max_history = 50
-default_provider = "openai"
-default_mode = "single"
+default_provider = "ds"
+# default_mode = "single"       # one AI answers
+default_mode = "roundtable"     # multiple AIs take turns
+# default_mode = "blueprint"    # multi-stage orchestration
+# working_dir = "/path/to/project"
 
-# ====== LLM Providers ======
+# ─── LLM providers (3 examples: api_key, api_key_env, system_prompt_file) ─
 
 [[providers]]
-id = "openai"
+id = "ds"
+type = "deepseek"
+model = "deepseek-chat"
+api_key = "sk-xxxxxxxx"         # ← demo: write key directly
+
+[[providers]]
+id = "oa"
 type = "openai"
-model = "gpt-4-turbo"
-api_key = "sk-xxxxxxxxxxxxxxxxxxxx"   # 直接写 key
-# api_key_env = "OPENAI_API_KEY"      # 或通过环境变量
+model = "gpt-4o"
+api_key_env = "OPENAI_API_KEY"  # ← demo: read key from environment variable
 
-# [[providers]]
-# id = "claude"
-# type = "anthropic"
-# model = "claude-sonnet-4-20250514"
-# api_key = "sk-ant-xxxxxxxxxxxx"
-# temperature = 0.5
-# max_tokens = 8192
+[[providers]]
+id = "amiya"
+type = "deepseek"
+model = "deepseek-chat"
+api_key = "sk-xxxxxxxx"
+system_prompt_file = "./personas/阿米娅_char_002_amiya.json"  # ← demo: load persona from JSON
 
-# [[providers]]
-# id = "local"
-# type = "ollama"
-# model = "qwen3:32b"
-# base_url = "http://localhost:11434"
-# temperature = 0.7
-# max_tokens = 4096
-
-# [[providers]]
-# id = "deepseek"
-# type = "deepseek"
-# model = "deepseek-coder"
-# api_key = "sk-xxxxxxxxxxxx"
-# temperature = 0.7
-# max_tokens = 8192
-
-# ====== Tool Settings ======
+# ─── Tool permissions ─────────────────────────────────────────────────────
 
 [tools]
-read_enabled = true
-write_enabled = true
-grep_enabled = true
-glob_enabled = true
-bash_enabled = false       # disable for safety, enable as needed
-allow_paths = []           # empty = working directory only
-deny_paths = ["/etc", "/sys", "/proc", "/boot"]
+read_enabled    = true
+write_enabled   = true
+edit_enabled    = true
+grep_enabled    = true
+glob_enabled    = true
+bash_enabled    = false     # dangerous — enable only when needed
+allow_paths     = []
+deny_paths      = ["/etc", "/sys", "/proc", "/boot"]
 
-# ====== Roundtable ======
+# ── declarative capabilities (all disabled by default) ──
+# speak_capability  = false   # agent plays MP3 voice by conversational intent
+# video_capability  = false   # agent plays WebM video by conversational intent
+# ppt_generator     = false   # agent generates PowerPoint from text
+# web_search        = false   # agent searches the web
+# image_generation  = false   # agent generates images from descriptions
+
+# ─── Roundtable ───────────────────────────────────────────────────────────
 
 [roundtable]
-# order = ["openai", "claude", "local"]
-# Leave empty to use all providers in config order
+order = []
+share_context = false
 
-# ====== Blueprint (multi-model collaboration) ======
+# ─── Blueprint ────────────────────────────────────────────────────────────
 
 [blueprint]
-enabled = false
+enabled      = false
 default_mode = "orchestrator"
-architect = "openai"
-reviewer = "openai"
+architect    = "ds"
+reviewer     = "ds"
 
 # [[blueprint.workers]]
-# provider = "claude"
-# [[blueprint.workers]]
-# provider = "deepseek"
-# [[blueprint.workers]]
-# provider = "local"
+# provider   = "oa"
+# languages  = ["rust"]
 
-# ====== MCP Servers ======
+# ─── MCP servers ──────────────────────────────────────────────────────────
 
 # [[mcp_servers]]
-# name = "filesystem"
-# type = "local"
-# enabled = true
-# command = ["npx", "-y", "@anthropic/mcp-filesystem", "."]
+# name     = "filesystem"
+# type     = "local"
+# enabled  = false
+# command  = ["npx", "-y", "@anthropic/mcp-filesystem", "."]

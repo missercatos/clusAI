@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::Write;
 
 use crate::error::{AgentError, AgentResult};
 use serde::{Deserialize, Serialize};
@@ -392,33 +393,96 @@ impl AgentConfig {
     }
 
     fn resolve_persona_files(&mut self) -> AgentResult<()> {
-        #[derive(Deserialize)]
-        struct PersonaFile {
-            system_prompt: String,
-            #[serde(default)]
-            temperature: Option<f32>,
-            #[serde(default)]
-            max_tokens: Option<u32>,
-        }
-
         for p in &mut self.providers {
             let Some(ref path) = p.system_prompt_file else { continue };
             let raw = std::fs::read_to_string(path)
                 .map_err(|e| AgentError::Config(format!(
                     "cannot read persona file {:?} for provider '{}': {e}", path, p.id
                 )))?;
-            let persona: PersonaFile = serde_json::from_str(&raw)
+            let value: serde_json::Value = serde_json::from_str(&raw)
                 .map_err(|e| AgentError::Config(format!(
-                    "invalid persona file {:?} for provider '{}': {e}", path, p.id
+                    "invalid JSON in persona file {:?} for provider '{}': {e}", path, p.id
                 )))?;
-            p.system_prompt = Some(persona.system_prompt);
-            if let Some(t) = persona.temperature {
-                p.temperature = t;
+
+            // JSON with explicit system_prompt field (simple persona)
+            if let Some(sp) = value.get("system_prompt").and_then(|v| v.as_str()) {
+                p.system_prompt = Some(sp.to_string());
+            } else {
+                // Structured persona: auto-generate system prompt from available fields
+                p.system_prompt = Some(build_persona_prompt(&value));
             }
-            if let Some(mt) = persona.max_tokens {
-                p.max_tokens = mt;
+
+            if let Some(t) = value.get("temperature").and_then(|v| v.as_f64()) {
+                p.temperature = t as f32;
+            }
+            if let Some(mt) = value.get("max_tokens").and_then(|v| v.as_u64()) {
+                p.max_tokens = mt as u32;
             }
         }
         Ok(())
     }
+}
+
+fn build_persona_prompt(data: &serde_json::Value) -> String {
+    let name = data.get("name").and_then(|v| v.as_str()).unwrap_or("character");
+    let mut prompt = format!("你是{name}。");
+
+    // ── description ──
+    if let Some(desc) = data.get("description") {
+        let info_cls = desc.get("affiliation").and_then(|v| v.as_str());
+        let info_age = desc.get("height").and_then(|v| v.as_str());
+        if let Some(aff) = info_cls { let _ = write!(prompt, " 身份：{aff}。"); }
+        if let Some(h) = info_age { let _ = write!(prompt, " 身高{h}。"); }
+    }
+
+    // ── personality ──
+    if let Some(personality) = data.get("personality") {
+        if let Some(core) = personality.get("core").and_then(|v| v.as_array()) {
+            let traits: Vec<&str> = core.iter().filter_map(|v| v.as_str()).collect();
+            if !traits.is_empty() {
+                let _ = write!(prompt, " 性格：{}。", traits.join("、"));
+            }
+        }
+        if let Some(inner) = personality.get("inner_world").and_then(|v| v.as_str()) {
+            let _ = write!(prompt, " {inner}");
+        }
+        if let Some(style) = personality.get("speaking_style").and_then(|v| v.as_str()) {
+            let _ = write!(prompt, " 说话风格：{style}");
+        }
+        if let Some(daily) = personality.get("daily_life").and_then(|v| v.as_str()) {
+            let _ = write!(prompt, " {daily}");
+        }
+    }
+
+    // ── relationships ──
+    if let Some(rels) = data.get("relationships").and_then(|v| v.as_object()) {
+        for (who, rel) in rels {
+            if let Some(desc) = rel.as_str() {
+                let _ = write!(prompt, " 与{who}的关系：{desc}");
+            }
+        }
+    }
+
+    // ── worldview ──
+    if let Some(wv) = data.get("worldview").and_then(|v| v.get("core_belief")).and_then(|v| v.as_str()) {
+        let _ = write!(prompt, " 核心信念：{wv}。");
+    }
+
+    // ── life story ──
+    if let Some(ls) = data.get("life_story") {
+        if let Some(origin) = ls.get("origin").and_then(|v| v.as_str()) {
+            let _ = write!(prompt, " 出身：{origin}。");
+        }
+        if let Some(events) = ls.get("key_events").and_then(|v| v.as_array()) {
+            let _ = write!(prompt, " 重要经历：");
+            for e in events.iter().take(5) {
+                if let Some(s) = e.as_str() {
+                    let _ = write!(prompt, "{s}。");
+                }
+            }
+        }
+    }
+
+    let _ = write!(prompt, " 你必须完全按照以上设定回答，绝不可脱离角色。只说中文。");
+    prompt
 }

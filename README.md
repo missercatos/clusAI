@@ -13,6 +13,8 @@ A pure-Rust multi-AI agent kernel.
 - **Customizable** — plug in any LLM provider (OpenAI, Anthropic, DeepSeek, Ollama, OpenAI-compatible), register custom tools, define world state namespaces.
 - **Ready to use** — ships with a CLI frontend (`ai-cli`) and works with the `collaborate` GUI out of the box. Config lives in `.clusai.toml`, zero compilation needed for end users.
 - **Multi-agent** — three collaboration modes: single, roundtable (sequential discussion), and blueprint (orchestrated code generation).
+- **Persona files** — point `system_prompt_file` to a JSON file. Supports simple `{ "system_prompt": "..." }` or structured character profiles (auto-generates prompt from personality/relationships/worldview fields).
+- **STDIO serve** — `ai-serve` exposes the kernel to external frontends (opencode, VS Code, Web) via one-line JSON over stdin/stdout. Zero wiring on the client side.
 
 [中文文档](README_CN.md)
 
@@ -168,6 +170,7 @@ Files: `~/.config/clusai/config.toml` (global, overridden by) → `./.clusai.tom
 | `api_key` | string | * | Key (or use `api_key_env`). |
 | `api_key_env` | string | * | Env var holding the key. |
 | `system_prompt` | string | — | Per-provider prompt. |
+| `system_prompt_file` | path | — | Load persona from JSON file. Supports simple `{"system_prompt":"..."}` or structured character profiles (auto-generates prompt). |
 | `base_url` | string | — | Proxy URL. |
 | `temperature` | float | 0.7 | 0.0–2.0. |
 | `max_tokens` | int | 8192 | Max output tokens. |
