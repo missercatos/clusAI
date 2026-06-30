@@ -11,5 +11,6 @@ pub mod mcp;
 pub mod ext;
 pub mod space;
 pub mod export;
+pub mod kernel;
 pub mod session;
 pub mod prelude;

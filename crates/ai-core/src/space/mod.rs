@@ -13,6 +13,7 @@ use crate::agent::run_chat_loop;
 use crate::config::AgentConfig;
 use crate::context::AgentContext;
 use crate::error::{AgentError, AgentResult};
+use crate::kernel;
 use crate::provider::{create_provider, LlmProvider};
 use crate::tool::{Tool, ToolContext, ToolRegistry};
 
@@ -27,6 +28,7 @@ struct AgentEntry {
     context: Arc<Mutex<AgentContext>>,
     system_prompt: String,
     custom_tools: Vec<Arc<dyn Tool>>,
+    capability_names: Vec<String>,
 }
 
 pub struct Space {
@@ -47,6 +49,7 @@ impl Space {
         let provider = create_provider(p_cfg)?;
         let system_prompt = p_cfg.system_prompt.clone()
             .unwrap_or_else(|| config.agent.system_prompt.clone());
+        let capability_names = config.enabled_capability_names();
         let agent_ctx = AgentContext::new(Arc::new(config));
 
         self.agents.insert(id.to_string(), AgentEntry {
@@ -54,6 +57,7 @@ impl Space {
             context: Arc::new(Mutex::new(agent_ctx)),
             system_prompt,
             custom_tools: Vec::new(),
+            capability_names,
         });
         Ok(())
     }
@@ -118,10 +122,11 @@ impl Space {
             let context = entry.context.clone();
             let system_prompt = entry.system_prompt.clone();
             let custom_tools = entry.custom_tools.clone();
+            let capability_names = entry.capability_names.clone();
             let event_tx = self.event_tx.clone();
             let worlds = self.worlds.clone();
 
-            futures.push(spawn_agent_think(id, provider, context, system_prompt, custom_tools, p, event_tx, worlds));
+            futures.push(spawn_agent_think(id, provider, context, system_prompt, custom_tools, capability_names, p, event_tx, worlds));
         }
 
         join_all(futures).await;
@@ -142,6 +147,7 @@ async fn spawn_agent_think(
     context: Arc<Mutex<AgentContext>>,
     system_prompt: String,
     custom_tools: Vec<Arc<dyn Tool>>,
+    capability_names: Vec<String>,
     prompt: String,
     event_tx: broadcast::Sender<SpaceEvent>,
     worlds: WorldRegistry,
@@ -155,6 +161,7 @@ async fn spawn_agent_think(
     tool_registry.register(ReadWorldTool::new(worlds.clone()));
     tool_registry.register(WriteWorldTool::new(worlds, event_tx.clone()));
     for tool in &custom_tools { tool_registry.register_arc(tool.clone()); }
+    for tool in kernel::tools_for(&capability_names) { tool_registry.register_arc(tool); }
 
     if !system_prompt.is_empty() { ctx.set_system_prompt(&system_prompt); }
     ctx.push_user(&prompt);

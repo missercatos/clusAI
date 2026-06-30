@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::error::{AgentError, AgentResult};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -164,6 +166,9 @@ pub struct ToolSettings {
 
     #[serde(default)]
     pub deny_paths: Vec<PathBuf>,
+
+    #[serde(flatten)]
+    pub capabilities: HashMap<String, bool>,
 }
 
 fn default_true() -> bool { true }
@@ -306,8 +311,13 @@ impl AgentConfig {
             self.blueprint.reviewer = other.blueprint.reviewer;
         }
 
+        // ── tools: preserve lower-priority capabilities ──
+        let prior_caps = std::mem::take(&mut self.tools.capabilities);
         if other.tools != ToolSettings::default() {
             self.tools = other.tools;
+        }
+        for (k, v) in prior_caps {
+            self.tools.capabilities.entry(k).or_insert(v);
         }
     }
 
@@ -367,5 +377,12 @@ impl AgentConfig {
 
     pub fn find_provider(&self, id: &str) -> Option<&ProviderConfig> {
         self.providers.iter().find(|p| p.id == id)
+    }
+
+    pub fn enabled_capability_names(&self) -> Vec<String> {
+        self.tools.capabilities.iter()
+            .filter(|(_, &on)| on)
+            .map(|(k, _)| k.clone())
+            .collect()
     }
 }

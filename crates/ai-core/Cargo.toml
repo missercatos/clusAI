@@ -21,4 +21,5 @@ regex.workspace = true
 dirs.workspace = true
 uuid = { workspace = true, features = ["v4", "serde"] }
 tracing.workspace = true
+blake3.workspace = true
 anyhow.workspace = true

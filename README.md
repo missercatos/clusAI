@@ -6,362 +6,237 @@
 
 # ai-core
 
-A pure-Rust multi-AI agent kernel. Manages LLM lifecycles, shared world state, and streaming event broadcast.
+A pure-Rust multi-AI agent kernel with a **hash-based declarative capability system**.
 
-**UI-agnostic** — frontends can be built with any stack: terminal, TUI, GUI, Web.
+Every function an agent can perform — from reading files to generating PPT — is a **Capability**: a named bundle of tools registered through a deterministic content hash. Third-party developers define new capabilities declaratively, and end users enable them with a single TOML flag. Zero glue code.
 
 [中文文档](README_CN.md)
 
 ---
 
-## Quick Start
+## Architecture
 
-```toml
-# ./.clusai.toml
-[agent]
-default_mode = "roundtable"
+The kernel has three layers, each targeting a different role:
 
-[[providers]]
-id = "alice"
-type = "deepseek"
-model = "deepseek-chat"
-api_key = "sk-xxx"
-system_prompt = "You are Alice, an optimistic assistant."
+| Layer | Who uses it | What they do |
+|-------|------------|--------------|
+| **Kernel** | Capability developers | Write `Tool` structs, wrap with `define_capability!` macro, call `install()`. The macro computes a blake3 hash from the capability name — this hash is the **transit station key** that links the declaration to every call site. |
+| **Frontend** | App developers | Call `Space.think_one("agent_name", prompt)` or `AgentHandle.send_message(prompt)`. Capability tools are auto-injected. No knowledge of hashes or registries required. |
+| **Config** | End users | Toggle capabilities in `.clusai.toml` under `[tools]` with `true`/`false`. Set provider credentials, model parameters, and collaboration rules. |
 
-[[providers]]
-id = "bob"
-type = "deepseek"
-model = "deepseek-chat"
-api_key = "sk-xxx"
-system_prompt = "You are Bob, a cautious assistant."
+### Hash Transit Station
 
-[roundtable]
-share_context = true
+```
+define_capability!("ppt_generator")  →  blake3("ppt_generator")  →  32-byte CapabilityId
+                                                                        ↓
+kernel::install(cap)  →  CapabilityRegistry[CapabilityId]  →  Vec<Arc<dyn Capability>>
+                                                                        ↓
+agent startup  →  config.enabled_capability_names()  →  kernel::tools_for(names)  →  ToolRegistry
 ```
 
-```rust
-use ai_core::space::Space;
-
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let config = ai_core::config::AgentConfig::load()?;
-    let mut space = Space::new();
-    space.add_agent("alice", config)?;
-
-    let mut events = space.subscribe();
-    space.think_all("Hello, please introduce yourselves.").await?;
-
-    while let Ok(event) = events.recv().await {
-        if let SpaceEvent::TextDelta { agent_id, content } = event {
-            print!("[{agent_id}] {content}");
-        }
-    }
-    Ok(())
-}
-```
+- **Same name = same hash.** Two developers independently defining `"ppt_generator"` produce the same `CapabilityId`. Their implementations are discoverable and interchangeable.
+- **Multiple implementations per hash** are supported. The registry stores a priority-ordered list; the highest-priority matching entry wins.
+- **The hash is the only coupling.** No string constants, no module imports, no trait-object downcasting.
 
 ---
 
-## Table of Contents
+## Declarative Capability Definition
 
-1. [Configuration](#configuration)
-2. [Space Mode (Multi-Agent Parallel)](#space-mode)
-3. [AgentHandle Mode (Single / Roundtable)](#agenthandle-mode)
-4. [World State](#world-state)
-5. [Custom Tools](#custom-tools)
-6. [Session Persistence](#session-persistence)
-7. [Event Reference](#event-reference)
+A capability bundles one or more tools under a name. Defining one takes three steps:
+
+### Step 1 — Write the Tool
+
+Implement the `Tool` trait: a `def()` that returns the tool's JSON Schema descriptor, and an `execute()` that performs the actual work. The struct must derive `Default`.
+
+### Step 2 — Wrap with `define_capability!`
+
+The declarative macro accepts a struct name, a capability name (becomes the hash key), a description, and a list of tool types:
+
+| Macro field | Type | Purpose |
+|------------|------|---------|
+| `name` | `&str` | Capability name. Hashed with blake3 to produce `CapabilityId`. |
+| `desc` | `&str` | Human-readable description surfaced in logs and introspection. |
+| `tools` | `[ToolType, ...]` | Comma-separated list of tool structs. Each must implement `Tool + Default`. |
+
+The macro expands to a unit struct that implements the `Capability` trait. The implementation auto-derives `id()`, `name()`, `description()`, and `tools()`.
+
+### Step 3 — Install into the Global Registry
+
+Call `ai_core::kernel::install(Arc::new(MyCap))` once at crate or application startup. This pushes the capability into the global `OnceLock<Mutex<CapabilityRegistry>>`.
+
+After installation, the capability is immediately available to every agent that enables it in config.
+
+### The Global Registry API
+
+| Function | Purpose |
+|----------|---------|
+| `kernel::install(cap)` | Register a capability. Must be called before any agent starts. |
+| `kernel::registry()` | Borrow the global `Mutex<CapabilityRegistry>` for inspection. |
+| `registry.register(cap)` | Low-level: push a capability directly (used by `install`). |
+| `registry.resolve_by_name(name)` | Look up a capability by its string name. Returns `Option`. |
+| `registry.resolve(id)` | Look up by `CapabilityId` hash. |
+| `registry.list_names()` | Enumerate all registered capability names. |
 
 ---
 
-## Configuration
+## Frontend Integration
 
-Config files at `~/.config/clusai/config.toml` (global) or `./.clusai.toml` (project-level, takes precedence).
+Capabilities are transparent to frontend code. There is no new API to learn.
 
-### Full Options
+### Space Mode (Multi-Agent)
+
+The `Space` holds named agents, each bound to a pipeline and a set of enabled capabilities. Capability tools are merged into the agent's `ToolRegistry` automatically during `think_*` calls.
+
+| Method | Purpose |
+|--------|---------|
+| `Space::new()` | Create an empty space. |
+| `space.add_agent(id, config)` | Add an agent. Enabled capabilities are extracted from `config.enabled_capability_names()`. |
+| `space.think_all(prompt)` | All agents think in parallel. Capability tools are available to the LLM. |
+| `space.think_one(id, prompt)` | Single agent thinks. |
+| `space.think_subset(&[ids], prompt)` | Named subset thinks. |
+| `space.subscribe()` | Get a `broadcast::Receiver<SpaceEvent>` for streaming events. |
+
+### AgentHandle Mode (Single / Roundtable)
+
+A simpler channel-based handle suitable for CLI or single-session use.
+
+| Method | Purpose |
+|--------|---------|
+| `AgentHandle::spawn(config)` | Launch agent loop. |
+| `agent.send_message(text)` | Send user input. |
+| `agent.recv()` | Await next `KernelOutput` event. |
+| `agent.shutdown()` | Graceful stop. |
+
+All capability tools registered via the global registry are automatically bound when the agent starts. No manual wiring.
+
+---
+
+## Configuration Reference
+
+Config files: `~/.config/clusai/config.toml` (global) or `./.clusai.toml` (project, overrides global).
+
+### `[agent]` — Global Settings
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `system_prompt` | string | built-in | Fallback system prompt when a provider has none. |
+| `max_history` | int | 50 | Maximum messages retained in context window. |
+| `default_provider` | string | `"default"` | Provider ID used for single-agent mode. |
+| `default_mode` | string | `"single"` | `single` / `roundtable` / `blueprint`. |
+| `working_dir` | path | cwd | Sandbox for file-system tools. |
+
+### `[[providers]]` — LLM Backends
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | yes | Unique identifier referenced elsewhere in config. |
+| `type` | string | yes | `openai` / `anthropic` / `deepseek` / `ollama` / `openai-compatible`. |
+| `model` | string | yes | Model name passed to the API. |
+| `api_key` | string | * | API key (mutually exclusive with `api_key_env`). |
+| `api_key_env` | string | * | Environment variable containing the key. |
+| `system_prompt` | string | — | Provider-specific system prompt (overrides `[agent]`). |
+| `base_url` | string | — | Custom proxy URL (required for `openai-compatible`). |
+| `temperature` | float | 0.7 | Sampling temperature in 0.0–2.0 range. |
+| `max_tokens` | int | 8192 | Maximum tokens per response. |
+
+\* Ollama providers do not require an API key.
+
+### `[tools]` — Built-in Tools & Capabilities
+
+Known tool fields:
+
+| Field | Type | Default | Effect when `true` |
+|-------|------|---------|--------------------|
+| `read_enabled` | bool | true | Agent can call `read_file`. |
+| `write_enabled` | bool | true | Agent can call `write_file`. |
+| `edit_enabled` | bool | true | Agent can call `edit_file`. |
+| `grep_enabled` | bool | true | Agent can search code with `grep`. |
+| `glob_enabled` | bool | true | Agent can search filenames with `glob`. |
+| `bash_enabled` | bool | false | Agent can execute shell commands. |
+| `allow_paths` | []string | `[]` | Whitelist of accessible paths (empty = working directory). |
+| `deny_paths` | []string | `[]` | Blacklist of blocked paths. |
+
+Any **unknown key** under `[tools]` is treated as a capability name:
 
 ```toml
-# ── Global ──────────────────────────
-[agent]
-system_prompt = "You are an AI coding assistant."
-max_history = 50                  # Max messages to keep, default 50
-default_provider = "deepseek"     # Which provider to use in single-agent mode
-default_mode = "roundtable"       # single | roundtable | blueprint
-working_dir = "/path/to/project"  # Working dir for tools, defaults to cwd
-
-# ── LLM Providers ──────────────────
-[[providers]]
-id = "my-ai"                      # Unique identifier
-type = "deepseek"                 # openai | anthropic | deepseek | ollama | openai-compatible
-model = "deepseek-chat"           # Model name
-api_key = "sk-xxx"                # Direct key (or use api_key_env)
-# api_key_env = "DEEPSEEK_KEY"    # Environment variable name
-system_prompt = "You are..."      # Provider-specific prompt, overrides [agent]
-base_url = "https://api.xxx.com"  # Self-hosted proxy
-temperature = 0.7                 # 0.0–2.0
-max_tokens = 8192
-
-# ── Tool Permissions ───────────────
 [tools]
-read_enabled   = true   # Read files
-write_enabled  = true   # Write new files
-edit_enabled   = true   # Edit existing files
-grep_enabled   = true   # Search code
-glob_enabled   = true   # Search file names
-bash_enabled   = false  # Shell commands (dangerous, off by default)
-allow_paths    = []     # Allowed paths, empty = working dir
-deny_paths     = ["/etc", "/proc"]
-
-# ── Roundtable ──────────────────────
-[roundtable]
-order = ["alice", "bob"]          # Speaking order
-share_context = true              # AIs see each other's messages
-
-# ── Blueprint Collaboration ────────
-[blueprint]
-enabled = false
-default_mode = "orchestrator"     # orchestrator | debate | consensus
-architect = "deepseek"            # Architect provider
-reviewer = "deepseek"             # Reviewer provider
-
-[[blueprint.workers]]
-provider = "claude"
-languages = ["rust", "python"]
-
-# ── MCP Plugins ─────────────────────
-[[mcp_servers]]
-name = "filesystem"
-type = "local"                    # local | remote
-enabled = true
-command = ["npx", "-y", "@anthropic/mcp-filesystem", "."]
+ppt_generator = true
+web_search = true
+image_edit = false
 ```
 
-### Field Reference
+A capability is enabled when set to `true` and has been installed via `kernel::install()`.
 
-<details>
-<summary><b>[agent]</b></summary>
+Capabilities merge additively across config layers: a project config can add new capabilities without losing those enabled in the global config.
+
+### `[roundtable]` — Multi-Agent Discussion
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `system_prompt` | string | built-in | Global prompt, used when provider has none |
-| `max_history` | int | 50 | Max messages retained |
-| `default_provider` | string | "default" | Default provider for single-agent mode |
-| `default_mode` | string | "single" | single / roundtable / blueprint |
-| `working_dir` | path | cwd | Working directory for tools |
+| `order` | []string | `[]` | Provider speaking order (empty = config file order). |
+| `share_context` | bool | false | Whether each agent sees previous agents' responses. |
 
-</details>
+### `[blueprint]` — Orchestrated Collaboration
 
-<details>
-<summary><b>[[providers]]</b></summary>
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | false | Enable blueprint mode. |
+| `default_mode` | string | `"orchestrator"` | `orchestrator` / `debate` / `consensus`. |
+| `architect` | string | — | Provider ID for the planning stage. |
+| `reviewer` | string | — | Provider ID for the review stage. |
+
+`[[blueprint.workers]]` — one entry per worker:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `provider` | string | Provider ID for this worker. |
+| `languages` | []string | Languages this worker handles. |
+
+### `[[mcp_servers]]` — External Plugins
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `id` | string | ✅ | Unique identifier |
-| `type` | string | ✅ | openai / anthropic / deepseek / ollama / openai-compatible |
-| `model` | string | ✅ | Model name |
-| `api_key` | string | * | API key (mutually exclusive with api_key_env) |
-| `api_key_env` | string | * | Env var name |
-| `system_prompt` | string | — | Provider-specific prompt |
-| `base_url` | string | — | Proxy URL |
-| `temperature` | float | 0.7 | Sampling temperature |
-| `max_tokens` | int | 8192 | Max output tokens |
-
-\* Ollama does not require a key.
-
-</details>
-
-<details>
-<summary><b>[tools]</b></summary>
-
-| Field | Type | Default | Purpose |
-|-------|------|---------|---------|
-| `read_enabled` | bool | true | Read files |
-| `write_enabled` | bool | true | Write new files |
-| `edit_enabled` | bool | true | Edit existing files |
-| `grep_enabled` | bool | true | Search code |
-| `glob_enabled` | bool | true | Search file names |
-| `bash_enabled` | bool | false | Run shell commands |
-| `allow_paths` | []string | [] | Allowed paths |
-| `deny_paths` | []string | [] | Denied paths |
-
-</details>
-
-<details>
-<summary><b>[roundtable]</b></summary>
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `order` | []string | [] | Speaking order |
-| `share_context` | bool | false | AIs see each other |
-
-</details>
-
-<details>
-<summary><b>[blueprint]</b></summary>
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `enabled` | bool | false | Enable |
-| `default_mode` | string | orchestrator | orchestrator / debate / consensus |
-| `architect` | string | — | Architect provider |
-| `reviewer` | string | — | Reviewer provider |
-| `workers` | []worker | [] | Worker list |
-
-</details>
-
-<details>
-<summary><b>[[mcp_servers]]</b></summary>
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `name` | string | ✅ | Name |
-| `type` | string | ✅ | local / remote |
-| `enabled` | bool | — | Enable |
-| `command` | []string | — | Launch command |
-| `url` | string | — | Remote address |
-
-</details>
-
----
-
-## Space Mode
-
-Multi-agent parallel collaboration. Pure async, runtime-agnostic.
-
-```rust
-use ai_core::space::{Space, SpaceEvent};
-
-let mut space = Space::new();
-space.add_agent("alice", config)?;
-space.add_agent("bob", config)?;
-
-let mut events = space.subscribe();
-
-// Three granularities
-space.think_all("All AIs think about the same question").await?;
-space.think_one("alice", "Only alice thinks").await?;
-space.think_subset(&["a", "b"], "Subset thinks").await?;
-
-// Handle streaming events
-while let Ok(e) = events.recv().await {
-    match e {
-        SpaceEvent::TextDelta { agent_id, content } => print!("[{agent_id}] {content}"),
-        SpaceEvent::AgentFinished { .. } => {}
-        SpaceEvent::ThinkComplete => break,
-        _ => {}
-    }
-}
-```
-
-### Space API
-
-```rust
-// Agents
-space.add_agent("id", config)?;
-space.remove_agent("id");
-space.register_tool("agent_id", Arc::new(tool))?;
-
-// World state
-space.worlds().create("name").await;
-space.worlds().set("name", "key", json!(v)).await;
-space.worlds().get("name", "key").await;
-
-// Events
-space.subscribe();  // broadcast::Receiver<SpaceEvent>
-```
-
----
-
-## AgentHandle Mode
-
-Single-agent or roundtable dialogue, suited for simple Q&A.
-
-```rust
-let mut agent = AgentHandle::spawn(config).await?;
-agent.send_message("Hello")?;
-
-while let Ok(e) = agent.recv().await {
-    match e {
-        KernelOutput::TextDelta { content, .. } => print!("{content}"),
-        KernelOutput::MessageComplete { .. } => break,
-        _ => {}
-    }
-}
-agent.shutdown();
-```
+| `name` | string | yes | Server name. |
+| `type` | string | yes | `local` (spawned process) or `remote` (HTTP endpoint). |
+| `enabled` | bool | — | Whether to start this server. |
+| `command` | []string | — | Process + arguments for local servers. |
+| `url` | string | — | URL for remote servers. |
 
 ---
 
 ## World State
 
-Multi-KV storage space. Agents read/write via tools, frontends operate directly.
+A multi-namespace key-value store shared between agents and frontends.
 
-```rust
-let w = space.worlds();
-w.create("battlefield").await;
-w.set("battlefield", "hp", json!(100)).await;
-let hp = w.get("battlefield", "hp").await;
+| Method | Description |
+|--------|-------------|
+| `space.worlds().create(name)` | Create a new namespace. |
+| `space.worlds().set(name, key, value)` | Write a key. Emits `StateChanged` event. |
+| `space.worlds().get(name, key)` | Read a key. |
+| `space.worlds().snapshot(name)` | Dump entire namespace as `HashMap<String, Value>`. |
 
-let full = w.snapshot("battlefield").await;  // HashMap<String, Value>
-```
+Each agent is automatically given three world tools:
 
-Agents auto-register three world tools: `speak(text)` → `AgentSpeech` / `read_world(world, key)` / `write_world(world, key, value)` → `StateChanged`.
-
----
-
-## Custom Tools
-
-Agents invoke tools via function calling. Frontends implement `Tool` trait and register with `Space`.
-
-```rust
-use ai_core::tool::{Tool, ToolContext, ToolDef};
-
-struct MyTool;
-
-#[async_trait]
-impl Tool for MyTool {
-    fn def(&self) -> ToolDef {
-        ToolDef {
-            name: "attack".into(),
-            description: "Attack a target".into(),
-            parameters: json!({ "type": "object", "properties": { "target": { "type": "string" } }, "required": ["target"] }),
-        }
-    }
-
-    async fn execute(&self, args: Value, _ctx: &ToolContext) -> AgentResult<String> {
-        let target = args["target"].as_str().unwrap_or("?");
-        Ok(format!("attacked {target}"))
-    }
-}
-
-space.register_tool("alice", Arc::new(MyTool))?;
-```
+| Tool | Event emitted |
+|------|--------------|
+| `speak(text)` | `AgentSpeech` |
+| `read_world(world, key)` | — |
+| `write_world(world, key, value)` | `StateChanged` |
 
 ---
 
 ## Session Persistence
 
-Pure sync file I/O. Output is standard JSON, parseable by any language.
+Sessions are saved as standard JSON files under `~/.config/clusai/sessions/{id}.json`. The API is synchronous — no async runtime required.
 
-```rust
-use ai_core::session::{Session, SessionStore};
+| Method | Description |
+|--------|-------------|
+| `store.save(session)` | Persist a session to disk. |
+| `store.load(id)` | Load a session by ID. |
+| `store.list()` | Enumerate all saved session metadata. |
+| `store.delete(id)` | Remove a session file. |
 
-let store = SessionStore::new(dir);
-
-// Save → ~/.config/clusai/sessions/{id}.json
-store.save(&session)?;
-
-// Load
-let session = store.load("id")?;
-
-// Browse archives
-for meta in store.list()? {
-    println!("{} ({} messages)", meta.id, meta.message_count);
-}
-
-// Delete
-store.delete("id")?;
-```
+The JSON format is language-agnostic: any toolchain can parse saved sessions directly.
 
 ---
 
@@ -369,24 +244,24 @@ store.delete("id")?;
 
 ### SpaceEvent
 
-| Event | Fields | Description |
-|-------|--------|-------------|
-| `AgentThinking` | `agent_id` | Thinking started |
-| `TextDelta` | `agent_id, content` | Streaming text |
-| `AgentFinished` | `agent_id, content` | Completed |
-| `AgentSpeech` | `agent_id, text` | speak tool triggered |
-| `ToolCallStart` | `agent_id, tool_name, args_preview` | Tool call started |
-| `ToolCallEnd` | `agent_id, tool_name, succeeded, output_preview` | Tool call result |
-| `StateChanged` | `world, key, value` | World write |
-| `AgentError` | `agent_id, message` | Error |
-| `ThinkComplete` | — | Round finished |
+| Event | Fields | Trigger |
+|-------|--------|---------|
+| `AgentThinking` | `agent_id` | Agent begins processing. |
+| `TextDelta` | `agent_id, content` | Streaming text chunk arrives. |
+| `AgentFinished` | `agent_id, content` | Agent completes response. |
+| `AgentSpeech` | `agent_id, text` | `speak` tool invoked. |
+| `ToolCallStart` | `agent_id, tool_name, args_preview` | Tool call begins. |
+| `ToolCallEnd` | `agent_id, tool_name, succeeded, output_preview` | Tool call finishes. |
+| `StateChanged` | `world, key, value` | World value written. |
+| `AgentError` | `agent_id, message` | Error occurred. |
+| `ThinkComplete` | — | All agents finished this round. |
 
 ### KernelOutput (AgentHandle)
 
-| Event | Description |
-|-------|-------------|
-| `TextDelta` / `MessageComplete` | Streaming output |
-| `RoundStart` / `RoundEnd` / `RoundtableComplete` | Roundtable progress |
-| `ToolCallStart` / `ToolCallEnd` / `PermissionRequest` | Tools & permissions |
-| `SessionSaved` / `SessionLoaded` / `SessionList` | Session management |
-| `Error` | Error |
+| Event | Trigger |
+|-------|---------|
+| `TextDelta` / `MessageComplete` | Streaming response. |
+| `RoundStart` / `RoundEnd` / `RoundtableComplete` | Roundtable progress. |
+| `ToolCallStart` / `ToolCallEnd` / `PermissionRequest` | Tool lifecycle. |
+| `SessionSaved` / `SessionLoaded` / `SessionList` | Session management. |
+| `Error` | Recoverable or fatal error. |

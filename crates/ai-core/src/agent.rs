@@ -697,6 +697,11 @@ fn build_tool_registry(config: &AgentConfig) -> ToolRegistry {
         registry.register(BashTool);
     }
 
+    let cap_names = config.enabled_capability_names();
+    for tool in crate::kernel::tools_for(&cap_names) {
+        registry.register_arc(tool);
+    }
+
     registry
 }
 
