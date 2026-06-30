@@ -1,12 +1,12 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock, RwLock};
 
 use crate::tool::Tool;
 
-static REGISTRY: OnceLock<Mutex<CapabilityRegistry>> = OnceLock::new();
+static REGISTRY: OnceLock<RwLock<CapabilityRegistry>> = OnceLock::new();
 
-pub fn registry() -> &'static Mutex<CapabilityRegistry> {
-    REGISTRY.get_or_init(|| Mutex::new(CapabilityRegistry::new()))
+pub fn registry() -> &'static RwLock<CapabilityRegistry> {
+    REGISTRY.get_or_init(|| RwLock::new(CapabilityRegistry::new()))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -72,13 +72,13 @@ impl Default for CapabilityRegistry {
 
 pub fn install(cap: Arc<dyn Capability>) {
     registry()
-        .lock()
+        .write()
         .expect("capability registry poisoned")
         .register(cap);
 }
 
 pub(crate) fn tools_for(names: &[String]) -> Vec<Arc<dyn Tool>> {
-    let reg = registry().lock().expect("capability registry poisoned");
+    let reg = registry().read().expect("capability registry poisoned");
     let mut tools = Vec::new();
     for name in names {
         if let Some(cap) = reg.resolve_by_name(name) {

@@ -57,7 +57,7 @@ fn main() {
     kernel::install(Arc::new(PptCap));
 
     // Verify it's registered
-    let reg = kernel::registry().lock().unwrap();
+    let reg = kernel::registry().read().unwrap();
     let cap = reg.resolve_by_name("ppt_generator")
         .expect("ppt_generator capability should be registered");
 

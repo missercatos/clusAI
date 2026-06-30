@@ -117,7 +117,7 @@ fn main() {
     kernel::install(Arc::new(SpeakCap));
 
     // ── verify it's registered ──
-    let reg = kernel::registry().lock().unwrap();
+    let reg = kernel::registry().read().unwrap();
     let cap = reg.resolve_by_name("speak_capability")
         .expect("speak_capability should be registered");
 
