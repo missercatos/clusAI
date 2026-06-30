@@ -171,27 +171,8 @@ async fn handle_single_chat(
     let tool_ctx = make_tool_context(ctx, config);
     let tools_schema = tool_registry.openai_tool_schemas();
 
-    match run_chat_with_tools(ctx, provider.as_ref(), tool_registry, &tool_ctx, &tools_schema, output_tx).await {
-        Ok(assistant_msg) => {
-            let _ = output_tx.send(KernelOutput::StreamEnd {
-                message_id: Uuid::new_v4(),
-                model: provider.model().to_string(),
-            });
-            let _ = output_tx.send(KernelOutput::MessageComplete {
-                message: assistant_msg,
-            });
-        }
-        Err(e) => {
-            let _ = output_tx.send(KernelOutput::StreamEnd {
-                message_id: Uuid::new_v4(),
-                model: provider.model().to_string(),
-            });
-            let _ = output_tx.send(KernelOutput::Error {
-                message: e.to_string(),
-                kind: ErrorKind::Recoverable,
-            });
-        }
-    }
+    let result = run_chat_with_tools(ctx, provider.as_ref(), tool_registry, &tool_ctx, &tools_schema, output_tx).await;
+    emit_stream_result(output_tx, provider.model(), &result);
 
     {
         let mut s = state.write().await;
@@ -307,14 +288,12 @@ async fn handle_roundtable(
         match run_chat_with_tools(ctx, provider.as_ref(), tool_registry, &tool_ctx, &tools_schema, output_tx).await {
             Ok(msg) => {
                 let content = msg.content.clone().unwrap_or_default();
-
+                previous_responses.push((provider_id.clone(), content));
                 let _ = output_tx.send(KernelOutput::StreamEnd {
                     message_id: Uuid::new_v4(),
                     model: provider.model().to_string(),
                 });
                 let _ = output_tx.send(KernelOutput::MessageComplete { message: msg });
-
-                previous_responses.push((provider_id.clone(), content));
             }
             Err(e) => {
                 let _ = output_tx.send(KernelOutput::StreamEnd {
@@ -525,25 +504,26 @@ async fn run_chat_with_tools(
 ) -> AgentResult<Message> {
     let schemas: Option<&[Value]> = if tools_schema.is_empty() { None } else { Some(tools_schema) };
     let model = provider.model().to_string();
+    let msg_id = Uuid::new_v4();
     run_chat_loop(
         ctx, provider, tool_registry, tool_ctx, schemas,
         |text| {
             let _ = output_tx.send(KernelOutput::TextDelta {
-                message_id: Uuid::new_v4(),
+                message_id: msg_id,
                 content: text.to_string(),
                 model: model.clone(),
             });
         },
         |name, preview| {
             let _ = output_tx.send(KernelOutput::ToolCallStart {
-                call_id: Uuid::new_v4().to_string(),
+                call_id: String::new(),
                 tool_name: name.to_string(),
                 args_preview: preview.to_string(),
             });
         },
         |name, ok, preview| {
             let _ = output_tx.send(KernelOutput::ToolCallEnd {
-                call_id: Uuid::new_v4().to_string(),
+                call_id: String::new(),
                 tool_name: name.to_string(),
                 succeeded: ok,
                 output_preview: preview.to_string(),
@@ -558,6 +538,28 @@ async fn run_chat_with_tools(
             });
         },
     ).await
+}
+
+fn emit_stream_result(
+    output_tx: &broadcast::Sender<KernelOutput>,
+    model: &str,
+    result: &AgentResult<Message>,
+) {
+    let _ = output_tx.send(KernelOutput::StreamEnd {
+        message_id: Uuid::new_v4(),
+        model: model.to_string(),
+    });
+    match result {
+        Ok(msg) => {
+            let _ = output_tx.send(KernelOutput::MessageComplete { message: msg.clone() });
+        }
+        Err(e) => {
+            let _ = output_tx.send(KernelOutput::Error {
+                message: e.to_string(),
+                kind: ErrorKind::Recoverable,
+            });
+        }
+    }
 }
 
 async fn handle_user_action(
@@ -706,22 +708,7 @@ fn build_tool_registry(config: &AgentConfig) -> ToolRegistry {
 }
 
 fn make_tool_context(ctx: &AgentContext, _config: &Arc<AgentConfig>) -> ToolContext {
-    let allow_paths: Vec<_> = ctx
-        .tool_allow_paths()
-        .into_iter()
-        .map(|p| p.canonicalize().unwrap_or(p))
-        .collect();
-    let deny_paths: Vec<_> = ctx
-        .tool_deny_paths()
-        .into_iter()
-        .map(|p| p.canonicalize().unwrap_or(p))
-        .collect();
-
-    ToolContext {
-        working_dir: ctx.working_dir.clone(),
-        allow_paths,
-        deny_paths,
-    }
+    ctx.tool_context()
 }
 
 fn tool_risk_level(tool_name: &str) -> RiskLevel {

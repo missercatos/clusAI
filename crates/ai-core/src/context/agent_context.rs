@@ -7,6 +7,8 @@ pub struct AgentContext {
     pub config: Arc<AgentConfig>,
     pub history: Vec<Message>,
     pub working_dir: PathBuf,
+    cached_allow: Vec<PathBuf>,
+    cached_deny: Vec<PathBuf>,
 }
 
 impl AgentContext {
@@ -17,13 +19,31 @@ impl AgentContext {
             .clone()
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
 
+        let canon = |p: &PathBuf| p.canonicalize().unwrap_or_else(|_| p.clone());
+        let cached_allow: Vec<_> = if config.tools.allow_paths.is_empty() {
+            vec![canon(&working_dir)]
+        } else {
+            config.tools.allow_paths.iter().map(canon).collect()
+        };
+        let cached_deny: Vec<_> = config.tools.deny_paths.iter().map(canon).collect();
+
         let mut ctx = Self {
             config,
             history: vec![],
             working_dir,
+            cached_allow,
+            cached_deny,
         };
         ctx.reset_history();
         ctx
+    }
+
+    pub fn tool_context(&self) -> crate::tool::ToolContext {
+        crate::tool::ToolContext {
+            working_dir: self.working_dir.clone(),
+            allow_paths: self.cached_allow.clone(),
+            deny_paths: self.cached_deny.clone(),
+        }
     }
 
     pub fn reset_history(&mut self) {

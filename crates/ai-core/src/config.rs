@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::fmt::Write;
 
 use crate::error::{AgentError, AgentResult};
 use serde::{Deserialize, Serialize};
@@ -425,64 +424,81 @@ impl AgentConfig {
 
 fn build_persona_prompt(data: &serde_json::Value) -> String {
     let name = data.get("name").and_then(|v| v.as_str()).unwrap_or("character");
-    let mut prompt = format!("你是{name}。");
+    let mut p = String::with_capacity(1024);
+    p.push_str("你是");
+    p.push_str(name);
+    p.push_str("。");
 
-    // ── description ──
     if let Some(desc) = data.get("description") {
-        let info_cls = desc.get("affiliation").and_then(|v| v.as_str());
-        let info_age = desc.get("height").and_then(|v| v.as_str());
-        if let Some(aff) = info_cls { let _ = write!(prompt, " 身份：{aff}。"); }
-        if let Some(h) = info_age { let _ = write!(prompt, " 身高{h}。"); }
+        if let Some(aff) = desc.get("affiliation").and_then(|v| v.as_str()) {
+            p.push_str(" 身份：");
+            p.push_str(aff);
+            p.push('。');
+        }
+        if let Some(h) = desc.get("height").and_then(|v| v.as_str()) {
+            p.push_str(" 身高");
+            p.push_str(h);
+            p.push('。');
+        }
     }
 
-    // ── personality ──
     if let Some(personality) = data.get("personality") {
         if let Some(core) = personality.get("core").and_then(|v| v.as_array()) {
             let traits: Vec<&str> = core.iter().filter_map(|v| v.as_str()).collect();
             if !traits.is_empty() {
-                let _ = write!(prompt, " 性格：{}。", traits.join("、"));
+                p.push_str(" 性格：");
+                p.push_str(&traits.join("、"));
+                p.push('。');
             }
         }
         if let Some(inner) = personality.get("inner_world").and_then(|v| v.as_str()) {
-            let _ = write!(prompt, " {inner}");
+            p.push(' ');
+            p.push_str(inner);
         }
         if let Some(style) = personality.get("speaking_style").and_then(|v| v.as_str()) {
-            let _ = write!(prompt, " 说话风格：{style}");
+            p.push_str(" 说话风格：");
+            p.push_str(style);
         }
         if let Some(daily) = personality.get("daily_life").and_then(|v| v.as_str()) {
-            let _ = write!(prompt, " {daily}");
+            p.push(' ');
+            p.push_str(daily);
         }
     }
 
-    // ── relationships ──
     if let Some(rels) = data.get("relationships").and_then(|v| v.as_object()) {
         for (who, rel) in rels {
             if let Some(desc) = rel.as_str() {
-                let _ = write!(prompt, " 与{who}的关系：{desc}");
+                p.push_str(" 与");
+                p.push_str(who);
+                p.push_str("的关系：");
+                p.push_str(desc);
             }
         }
     }
 
-    // ── worldview ──
     if let Some(wv) = data.get("worldview").and_then(|v| v.get("core_belief")).and_then(|v| v.as_str()) {
-        let _ = write!(prompt, " 核心信念：{wv}。");
+        p.push_str(" 核心信念：");
+        p.push_str(wv);
+        p.push('。');
     }
 
-    // ── life story ──
     if let Some(ls) = data.get("life_story") {
         if let Some(origin) = ls.get("origin").and_then(|v| v.as_str()) {
-            let _ = write!(prompt, " 出身：{origin}。");
+            p.push_str(" 出身：");
+            p.push_str(origin);
+            p.push('。');
         }
         if let Some(events) = ls.get("key_events").and_then(|v| v.as_array()) {
-            let _ = write!(prompt, " 重要经历：");
+            p.push_str(" 重要经历：");
             for e in events.iter().take(5) {
                 if let Some(s) = e.as_str() {
-                    let _ = write!(prompt, "{s}。");
+                    p.push_str(s);
+                    p.push('。');
                 }
             }
         }
     }
 
-    let _ = write!(prompt, " 你必须完全按照以上设定回答，绝不可脱离角色。只说中文。");
-    prompt
+    p.push_str(" 你必须完全按照以上设定回答，绝不可脱离角色。只说中文。");
+    p
 }

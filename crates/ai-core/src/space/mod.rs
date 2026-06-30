@@ -15,7 +15,7 @@ use crate::context::AgentContext;
 use crate::error::{AgentError, AgentResult};
 use crate::kernel;
 use crate::provider::{create_provider, LlmProvider};
-use crate::tool::{Tool, ToolContext, ToolRegistry};
+use crate::tool::{Tool, ToolRegistry};
 
 pub use event::SpaceEvent;
 pub use world::WorldRegistry;
@@ -168,11 +168,7 @@ async fn spawn_agent_think(
 
     let tools_schema = tool_registry.openai_tool_schemas();
     let schemas: Option<&[Value]> = if tools_schema.is_empty() { None } else { Some(&tools_schema) };
-    let tool_ctx = ToolContext {
-        working_dir: ctx.working_dir.clone(),
-        allow_paths: ctx.tool_allow_paths(),
-        deny_paths: ctx.tool_deny_paths(),
-    };
+    let tool_ctx = ctx.tool_context();
 
     let tx = event_tx.clone();
     let aid = agent_id.clone();
