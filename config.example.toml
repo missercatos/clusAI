@@ -1,83 +1,144 @@
-# ~/.config/clusai/config.toml
-# User-level default config. Project-level ./.clusai.toml overrides this.
+# ============================================================================
+# Example config for ai-core
+# ============================================================================
+# Location (first match wins):
+#   1. ./.clusai.toml           project-level, overrides global
+#   2. ~/.config/clusai/config.toml   global default
+#
+# All features are shown here. Set to true only what you need.
+# Everything beyond basic I/O defaults to false for safety.
+# ============================================================================
+
+# ─── Global agent settings ───────────────────────────────────────────────
 
 [agent]
-system_prompt = """You are an AI coding assistant. You help users write, review, and debug code.
-Use tools when you need to read files, search code, or execute shell commands.
-Always explain your reasoning briefly before writing code."""
-max_history = 50
-default_provider = "openai"
-default_mode = "single"
+system_prompt = """You are an AI coding assistant. You help users write,
+review, and debug code. Use tools when you need to read files, search code,
+or execute shell commands."""
+max_history = 50         # max context messages to retain
+default_provider = "main"
+default_mode = "single"  # single | roundtable | blueprint
+working_dir = "/home/user/project"  # optional, defaults to cwd
 
-# ====== LLM Providers ======
+# ─── LLM providers (at least one required) ───────────────────────────────
 
 [[providers]]
-id = "openai"
-type = "openai"
-model = "gpt-4-turbo"
-api_key = "sk-xxxxxxxxxxxxxxxxxxxx"   # 直接写 key
-# api_key_env = "OPENAI_API_KEY"      # 或通过环境变量
+id = "main"                     # unique id referenced elsewhere in config
+type = "deepseek"               # openai | anthropic | deepseek | ollama | openai-compatible
+model = "deepseek-chat"
+api_key = "sk-xxxxxxxx"         # write key directly (mutually exclusive with api_key_env)
+# api_key_env = "DEEPSEEK_KEY"  # OR read from this environment variable
+system_prompt = "You are a helpful coding assistant."  # optional per-provider prompt, overrides [agent]
+temperature = 0.7               # 0.0–2.0, higher = more random
+max_tokens = 8192               # cap on generation length per response
+# base_url = "https://api.deepseek.com/v1"  # optional proxy endpoint
+
+# ── additional providers (commented out by default) ──
 
 # [[providers]]
-# id = "claude"
+# id = "openai"
+# type = "openai"
+# model = "gpt-4o"
+# api_key_env = "OPENAI_API_KEY"
+# temperature = 0.7
+# max_tokens = 16384
+
+# [[providers]]
+# id = "anthropic"
 # type = "anthropic"
 # model = "claude-sonnet-4-20250514"
-# api_key = "sk-ant-xxxxxxxxxxxx"
+# api_key_env = "ANTHROPIC_API_KEY"
 # temperature = 0.5
 # max_tokens = 8192
 
 # [[providers]]
 # id = "local"
-# type = "ollama"
+# type = "ollama"                       # ollama does NOT need api_key
 # model = "qwen3:32b"
-# base_url = "http://localhost:11434"
+# base_url = "http://localhost:11434"   # point to your ollama instance
 # temperature = 0.7
 # max_tokens = 4096
 
 # [[providers]]
-# id = "deepseek"
-# type = "deepseek"
-# model = "deepseek-coder"
-# api_key = "sk-xxxxxxxxxxxx"
+# id = "custom"
+# type = "openai-compatible"            # third-party API implementing OpenAI spec
+# model = "my-model"
+# api_key = "sk-xxx"
+# base_url = "https://my-api.example.com/v1"  # required for openai-compatible
 # temperature = 0.7
 # max_tokens = 8192
 
-# ====== Tool Settings ======
+# ─── Built-in tool permissions + declarative capabilities ────────────────
 
 [tools]
-read_enabled = true
-write_enabled = true
-grep_enabled = true
-glob_enabled = true
-bash_enabled = false       # disable for safety, enable as needed
-allow_paths = []           # empty = working directory only
-deny_paths = ["/etc", "/sys", "/proc", "/boot"]
+# ── basic I/O (safe by default) ──
+read_enabled = true         # agent can read files on disk
+write_enabled = true        # agent can create new files
+edit_enabled = true         # agent can edit existing files
 
-# ====== Roundtable ======
+# ── search (safe by default) ──
+grep_enabled = true         # agent can search code content with regex
+glob_enabled = true         # agent can search file names with glob patterns
+
+# ── dangerous (disabled by default) ──
+bash_enabled = false        # agent can execute arbitrary shell commands — USE WITH CAUTION
+
+# ── path restrictions ──
+allow_paths = []            # whitelist of accessible directories (empty = working_dir only)
+deny_paths = ["/etc", "/sys", "/proc", "/boot", "/root", "~/.ssh", "~/.gnupg"]
+
+# ── declarative capabilities (disabled by default) ──
+# Add any capability name = true here to enable it.
+# Capabilities are defined by third-party crates via define_capability! macro.
+# ppt_generator = false             # agent generates PowerPoint files from text
+# web_search = false                # agent searches the web via external API
+# image_generation = false          # agent generates images from descriptions
+# spreadsheet_exporter = false      # agent exports data to .xlsx or .csv
+# pdf_reader = false                # agent reads and extracts text from PDFs
+# database_query = false            # agent runs read-only queries against a database
+# git_operations = false            # agent runs safe git commands (status, log, diff)
+# code_executor = false             # agent runs code in a sandboxed environment
+
+# ─── Roundtable: multiple agents take turns discussing one topic ─────────
 
 [roundtable]
-# order = ["openai", "claude", "local"]
-# Leave empty to use all providers in config order
+order = []                  # speaking order (empty = all providers in config order)
+share_context = false       # if true, each agent sees previous agents' responses
 
-# ====== Blueprint (multi-model collaboration) ======
+# ─── Blueprint: multi-model orchestrated code generation ─────────────────
 
 [blueprint]
-enabled = false
-default_mode = "orchestrator"
-architect = "openai"
-reviewer = "openai"
+enabled = false             # enable blueprint mode (multi-stage code generation)
+default_mode = "orchestrator"  # orchestrator | debate | consensus
+architect = "main"          # which provider plans the solution
+reviewer = "main"           # which provider reviews generated code
 
+# ── blueprint workers (one entry per worker) ──
 # [[blueprint.workers]]
-# provider = "claude"
-# [[blueprint.workers]]
-# provider = "deepseek"
+# provider = "main"
+# languages = ["rust", "python"]
+
 # [[blueprint.workers]]
 # provider = "local"
+# languages = ["javascript", "typescript"]
 
-# ====== MCP Servers ======
+# ─── MCP servers: external tool plugins ──────────────────────────────────
 
 # [[mcp_servers]]
-# name = "filesystem"
+# name = "filesystem"                  # server name for logging and introspection
+# type = "local"                       # local (spawned process) or remote (HTTP)
+# enabled = false                      # start on agent launch
+# command = ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/home/user"]
+
+# [[mcp_servers]]
+# name = "github"
 # type = "local"
-# enabled = true
-# command = ["npx", "-y", "@anthropic/mcp-filesystem", "."]
+# enabled = false
+# command = ["npx", "-y", "@modelcontextprotocol/server-github"]
+# # env vars like GITHUB_TOKEN are inherited from the parent process
+
+# [[mcp_servers]]
+# name = "my-api"
+# type = "remote"
+# enabled = false
+# url = "https://my-mcp-server.example.com/sse"
