@@ -6,98 +6,141 @@
 
 # ai-core
 
-A pure-Rust multi-AI agent kernel with a **declarative capability system**.
+A pure-Rust multi-AI agent kernel.
 
-The kernel manages LLM lifecycles, shared world state, and streaming event broadcast. On top of this, the capability system lets third-party developers define new agent behaviors declaratively — wrapping one or more tools under a named capability with a single macro call. End users enable capabilities in `[tools]` with `true`/`false`, just like built-in tools. No glue code required anywhere in the stack.
+- **Callable** — drop it into any Rust project, call `Space.think_one()` or `AgentHandle.send_message()`, receive streaming events via broadcast channel.
+- **Embeddable** — no UI assumptions. Build a CLI with it, a TUI, a GUI, a Web server. The kernel emits typed events; you render them however you want.
+- **Customizable** — plug in any LLM provider (OpenAI, Anthropic, DeepSeek, Ollama, OpenAI-compatible), register custom tools, define world state namespaces.
+- **Ready to use** — ships with a CLI frontend (`ai-cli`) and works with the `collaborate` GUI out of the box. Config lives in `.clusai.toml`, zero compilation needed for end users.
+- **Multi-agent** — three collaboration modes: single, roundtable (sequential discussion), and blueprint (orchestrated code generation).
 
 [中文文档](README_CN.md)
 
 ---
 
-## How it works
+## Quick Start
 
-Three roles, three interfaces:
+```toml
+# ./.clusai.toml
+[agent]
+default_mode = "roundtable"
 
-| Role | Interface | Concern |
-|------|-----------|---------|
-| **Capability author** | `define_capability!` macro + `kernel::install()` | Write a `Tool` struct, wrap it in the macro, call `install`. Done. |
-| **Frontend developer** | `Space.think_one("agent", prompt)` | Same API. Capability tools appear in the LLM's tool list automatically. |
-| **End user** | `.clusai.toml` `[tools]` section | `ppt_generator = true`. That's it. |
+[[providers]]
+id = "alice"
+type = "deepseek"
+model = "deepseek-chat"
+api_key = "sk-xxx"
+system_prompt = "You are Alice."
 
-### Declarative dispatch
+[[providers]]
+id = "bob"
+type = "deepseek"
+model = "deepseek-chat"
+api_key = "sk-xxx"
+system_prompt = "You are Bob."
 
-The `define_capability!` macro computes a deterministic hash from the capability name. This hash serves as a **lookup key** in a global registry. When an agent starts, the kernel reads `[tools]` for enabled capability names, resolves their hashes, and injects the corresponding tools into the agent's tool set.
-
+[roundtable]
+share_context = true
 ```
-define_capability!("ppt_generator")  →  registered in global CapabilityRegistry
-                                                ↓
-agent startup  →  config.enabled_capability_names()  →  registry lookup  →  tools injected
-```
 
-Two developers independently defining `"ppt_generator"` produce the same key and are mutually discoverable.
+```rust
+use ai_core::space::{Space, SpaceEvent};
+use ai_core::config::AgentConfig;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let config = AgentConfig::load()?;
+    let mut space = Space::new();
+    space.add_agent("alice", config)?;
+
+    let mut events = space.subscribe();
+    space.think_all("Introduce yourselves.").await?;
+
+    while let Ok(e) = events.recv().await {
+        if let SpaceEvent::TextDelta { agent_id, content } = e {
+            print!("[{agent_id}] {content}");
+        }
+    }
+    Ok(())
+}
+```
 
 ---
 
-## Declarative Capability Definition
+## How to Embed
 
-Three steps.
+The kernel exposes two integration patterns.
 
-### Step 1 — Write the Tool
+### Space (multi-agent, GUI / game / simulation)
 
-Implement `Tool`: `def()` returns the JSON Schema, `execute()` does the work. Derive `Default`.
+Hold named agents in a space, trigger them in parallel or sequentially, subscribe to a unified event stream.
 
-### Step 2 — Wrap with `define_capability!`
+| Method | Purpose |
+|--------|---------|
+| `space.add_agent(id, config)` | Register an agent. |
+| `space.think_all(prompt)` | All agents think in parallel. |
+| `space.think_one(id, prompt)` | Single agent. |
+| `space.think_subset(&[ids], prompt)` | Named subset. |
+| `space.subscribe()` | `broadcast::Receiver<SpaceEvent>`. |
+| `space.worlds()` | Shared world state. |
+| `space.register_tool(agent, tool)` | Per-agent custom tools. |
 
-| Macro field | Type | Purpose |
-|------------|------|---------|
-| `name` | `&str` | Capability name. |
-| `desc` | `&str` | Human-readable description. |
-| `tools` | `[ToolType, ...]` | Tool structs (must impl `Tool + Default`). |
+### AgentHandle (CLI / simple chat)
 
-The macro expands to a unit struct implementing `Capability`.
+A channel-based handle for single-agent or roundtable dialogue.
 
-### Step 3 — Install
+| Method | Purpose |
+|--------|---------|
+| `AgentHandle::spawn(config)` | Launch agent loop. |
+| `agent.send_message(text)` | Send user input. |
+| `agent.recv()` | Await `KernelOutput`. |
+| `agent.shutdown()` | Graceful stop. |
+
+---
+
+## Declarative Capability System
+
+Third-party developers can define new agent behaviors declaratively. Define a `Tool` struct, wrap it with `define_capability!`, call `kernel::install()`. End users enable it in `[tools]` with `true`.
 
 ```rust
-ai_core::kernel::install(Arc::new(MyCap));
+// 1. Write the tool
+#[derive(Default)]
+struct PptGen;
+#[async_trait::async_trait]
+impl Tool for PptGen { /* ... */ }
+
+// 2. Declare capability
+define_capability! {
+    pub struct PptCap {
+        name: "ppt_generator",
+        desc: "Generate PowerPoint from markdown",
+        tools: [PptGen],
+    }
+}
+
+// 3. Install once at startup
+kernel::install(Arc::new(PptCap));
 ```
 
-Call once at startup. Every agent that enables it in config now has access.
+Then in `.clusai.toml`:
+
+```toml
+[tools]
+ppt_generator = true
+```
+
+The kernel auto-injects the tool into every agent's tool set. No additional wiring.
+
+The `define_capability!` macro computes a deterministic hash from the capability name, used as a lookup key in a global registry. Two developers independently defining the same capability name produce the same key — implementations are mutually discoverable.
 
 ### Registry API
 
 | Function | Purpose |
 |----------|---------|
 | `kernel::install(cap)` | Register a capability. |
-| `kernel::registry()` | Borrow the global registry for inspection. |
+| `kernel::registry()` | Borrow the global registry. |
 | `registry.resolve_by_name(name)` | Look up by name. |
-| `registry.list_names()` | Enumerate all registered capabilities. |
-
----
-
-## Frontend Integration
-
-No new API. Capability tools are merged into the agent's tool set before each `think` call.
-
-### Space Mode
-
-| Method | Purpose |
-|--------|---------|
-| `Space::new()` | Create empty space. |
-| `space.add_agent(id, config)` | Add agent (capability names extracted from config automatically). |
-| `space.think_all(prompt)` | All agents, parallel. |
-| `space.think_one(id, prompt)` | Single agent. |
-| `space.think_subset(&[ids], prompt)` | Named subset. |
-| `space.subscribe()` | `broadcast::Receiver<SpaceEvent>`. |
-
-### AgentHandle Mode
-
-| Method | Purpose |
-|--------|---------|
-| `AgentHandle::spawn(config)` | Launch agent loop. |
-| `agent.send_message(text)` | Send input. |
-| `agent.recv()` | Await `KernelOutput`. |
-| `agent.shutdown()` | Graceful stop. |
+| `registry.list_names()` | All registered names. |
 
 ---
 
@@ -109,7 +152,7 @@ Files: `~/.config/clusai/config.toml` (global, overridden by) → `./.clusai.tom
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `system_prompt` | string | built-in | Fallback prompt when provider has none. |
+| `system_prompt` | string | built-in | Fallback prompt. |
 | `max_history` | int | 50 | Max context messages. |
 | `default_provider` | string | `"default"` | Provider for single-agent mode. |
 | `default_mode` | string | `"single"` | `single` / `roundtable` / `blueprint`. |
@@ -124,7 +167,7 @@ Files: `~/.config/clusai/config.toml` (global, overridden by) → `./.clusai.tom
 | `model` | string | yes | Model name. |
 | `api_key` | string | * | Key (or use `api_key_env`). |
 | `api_key_env` | string | * | Env var holding the key. |
-| `system_prompt` | string | — | Provider-specific prompt. |
+| `system_prompt` | string | — | Per-provider prompt. |
 | `base_url` | string | — | Proxy URL. |
 | `temperature` | float | 0.7 | 0.0–2.0. |
 | `max_tokens` | int | 8192 | Max output tokens. |
@@ -133,7 +176,7 @@ Files: `~/.config/clusai/config.toml` (global, overridden by) → `./.clusai.tom
 
 ### `[tools]`
 
-Known built-in fields:
+Built-in fields:
 
 | Field | Type | Default | Effect |
 |-------|------|---------|--------|
@@ -142,19 +185,11 @@ Known built-in fields:
 | `edit_enabled` | bool | true | `edit_file` tool. |
 | `grep_enabled` | bool | true | Code search. |
 | `glob_enabled` | bool | true | Filename search. |
-| `bash_enabled` | bool | false | Run shell commands. |
+| `bash_enabled` | bool | false | Shell commands. |
 | `allow_paths` | []string | `[]` | Path whitelist. |
 | `deny_paths` | []string | `[]` | Path blacklist. |
 
-Any **unrecognized key** under `[tools]` is a capability toggle:
-
-```toml
-[tools]
-ppt_generator = true    # enables the "ppt_generator" capability
-web_search = false      # explicitly disables it
-```
-
-Capabilities merge additively across config layers.
+Unknown keys under `[tools]` are capability toggles: `ppt_generator = true`. Capabilities merge additively across config layers.
 
 ### `[roundtable]`
 
@@ -185,7 +220,7 @@ Capabilities merge additively across config layers.
 |-------|------|----------|-------------|
 | `name` | string | yes | Server name. |
 | `type` | string | yes | `local` / `remote`. |
-| `enabled` | bool | — | Start this server. |
+| `enabled` | bool | — | Start on launch. |
 | `command` | []string | — | Launch command. |
 | `url` | string | — | Remote URL. |
 
@@ -202,13 +237,13 @@ Multi-namespace KV store shared by agents and frontends.
 | `worlds().get(name, key)` | Read. |
 | `worlds().snapshot(name)` | Dump as `HashMap`. |
 
-Built-in world tools: `speak`, `read_world`, `write_world`.
+Per-agent world tools: `speak`, `read_world`, `write_world`.
 
 ---
 
 ## Session Persistence
 
-Sessions saved as JSON under `~/.config/clusai/sessions/{id}.json`. Sync API.
+Sessions saved as JSON at `~/.config/clusai/sessions/{id}.json`. Sync API.
 
 | Method | Description |
 |--------|-------------|
@@ -225,7 +260,7 @@ Sessions saved as JSON under `~/.config/clusai/sessions/{id}.json`. Sync API.
 
 | Event | Fields | Trigger |
 |-------|--------|---------|
-| `AgentThinking` | `agent_id` | Processing started. |
+| `AgentThinking` | `agent_id` | Thinking started. |
 | `TextDelta` | `agent_id, content` | Stream chunk. |
 | `AgentFinished` | `agent_id, content` | Response complete. |
 | `AgentSpeech` | `agent_id, text` | `speak` tool. |
@@ -239,7 +274,7 @@ Sessions saved as JSON under `~/.config/clusai/sessions/{id}.json`. Sync API.
 
 | Event | Trigger |
 |-------|---------|
-| `TextDelta` / `MessageComplete` | Streaming/complete message. |
+| `TextDelta` / `MessageComplete` | Streaming/complete. |
 | `RoundStart` / `RoundEnd` / `RoundtableComplete` | Roundtable flow. |
 | `ToolCallStart` / `ToolCallEnd` / `PermissionRequest` | Tool lifecycle. |
 | `SessionSaved` / `SessionLoaded` / `SessionList` | Sessions. |
