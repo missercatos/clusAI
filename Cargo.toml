@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/ai-core",
     "crates/ai-cli",
+    "crates/ai-serve",
 ]
 
 [workspace.package]
