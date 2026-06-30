@@ -91,6 +91,9 @@ pub struct ProviderConfig {
     pub system_prompt: Option<String>,
 
     #[serde(default)]
+    pub system_prompt_file: Option<PathBuf>,
+
+    #[serde(default)]
     pub base_url: Option<String>,
 
     #[serde(default = "default_temperature")]
@@ -258,14 +261,16 @@ impl AgentConfig {
         }
 
         config.validate()?;
+        config.resolve_persona_files()?;
         Ok(config)
     }
 
     pub fn load_from(path: &Path) -> AgentResult<Self> {
         let raw = std::fs::read_to_string(path)
             .map_err(|e| AgentError::Config(format!("cannot read {path:?}: {e}")))?;
-        let config: Self = toml::from_str(&raw)?;
+        let mut config: Self = toml::from_str(&raw)?;
         config.validate()?;
+        config.resolve_persona_files()?;
         Ok(config)
     }
 
@@ -384,5 +389,36 @@ impl AgentConfig {
             .filter(|(_, &on)| on)
             .map(|(k, _)| k.clone())
             .collect()
+    }
+
+    fn resolve_persona_files(&mut self) -> AgentResult<()> {
+        #[derive(Deserialize)]
+        struct PersonaFile {
+            system_prompt: String,
+            #[serde(default)]
+            temperature: Option<f32>,
+            #[serde(default)]
+            max_tokens: Option<u32>,
+        }
+
+        for p in &mut self.providers {
+            let Some(ref path) = p.system_prompt_file else { continue };
+            let raw = std::fs::read_to_string(path)
+                .map_err(|e| AgentError::Config(format!(
+                    "cannot read persona file {:?} for provider '{}': {e}", path, p.id
+                )))?;
+            let persona: PersonaFile = serde_json::from_str(&raw)
+                .map_err(|e| AgentError::Config(format!(
+                    "invalid persona file {:?} for provider '{}': {e}", path, p.id
+                )))?;
+            p.system_prompt = Some(persona.system_prompt);
+            if let Some(t) = persona.temperature {
+                p.temperature = t;
+            }
+            if let Some(mt) = persona.max_tokens {
+                p.max_tokens = mt;
+            }
+        }
+        Ok(())
     }
 }

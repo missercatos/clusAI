@@ -29,6 +29,7 @@ model = "deepseek-chat"
 api_key = "sk-xxxxxxxx"         # write key directly (mutually exclusive with api_key_env)
 # api_key_env = "DEEPSEEK_KEY"  # OR read from this environment variable
 system_prompt = "You are a helpful coding assistant."  # optional per-provider prompt, overrides [agent]
+# system_prompt_file = "./personas/laozi.json"  # OR load persona from a JSON file (takes precedence over system_prompt)
 temperature = 0.7               # 0.0–2.0, higher = more random
 max_tokens = 8192               # cap on generation length per response
 # base_url = "https://api.deepseek.com/v1"  # optional proxy endpoint
@@ -36,9 +37,12 @@ max_tokens = 8192               # cap on generation length per response
 # ── additional providers (commented out by default) ──
 
 # [[providers]]
-# id = "openai"
-# type = "openai"
-# model = "gpt-4o"
+# id = "laozi"                        # persona loaded from JSON file
+# type = "deepseek"
+# model = "deepseek-chat"
+# api_key = "sk-xxxxxxxx"
+# system_prompt_file = "./personas/laozi.json"  # loads setting, temperature, max_tokens from JSON
+# # system_prompt is ignored when system_prompt_file is set
 # api_key_env = "OPENAI_API_KEY"
 # temperature = 0.7
 # max_tokens = 16384
@@ -90,6 +94,8 @@ deny_paths = ["/etc", "/sys", "/proc", "/boot", "/root", "~/.ssh", "~/.gnupg"]
 # ── declarative capabilities (disabled by default) ──
 # Add any capability name = true here to enable it.
 # Capabilities are defined by third-party crates via define_capability! macro.
+# speak_capability = false           # agent plays MP3 voice clips by conversational intent
+# video_capability = false           # agent plays WebM video clips by conversational intent
 # ppt_generator = false             # agent generates PowerPoint files from text
 # web_search = false                # agent searches the web via external API
 # image_generation = false          # agent generates images from descriptions
