@@ -4,6 +4,7 @@ members = [
     "crates/ai-core",
     "crates/ai-cli",
     "crates/ai-serve",
+    "crates/ai-ffi",
 ]
 
 [workspace.package]

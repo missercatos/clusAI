@@ -48,6 +48,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ai-ffi"
+version = "0.1.0"
+dependencies = [
+ "ai-core",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "ai-serve"
 version = "0.1.0"
 dependencies = [
