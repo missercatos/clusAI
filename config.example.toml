@@ -38,6 +38,7 @@ system_prompt = "You are a helpful coding assistant."  # fallback if no file
 # system_prompt_file = "./personas/laozi.json"  # OR load persona from JSON file
 temperature = 0.7                   # 0.0–2.0, higher = more creative
 max_tokens = 8192                   # cap on generation length per response
+speed = 1.0                         # speaking speed (0.0-1.0, 1.0=normal, <1.0=slower pauses)
 # base_url = "https://api.deepseek.com/v1"  # optional proxy endpoint
 
 [[providers]]
@@ -113,6 +114,7 @@ deny_paths  = ["/etc", "/sys", "/proc", "/boot", "/root", "~/.ssh", "~/.gnupg"]
 #   see: crates/ai-core/examples/voice_speak.rs, video_play.rs, capability_demo.rs
 # speak_capability  = false   # agent plays MP3 voice clips by conversational intent
 # video_capability  = false   # agent plays WebM video clips by conversational intent
+# conversation_pace = false   # agent pauses between utterances (per-provider speed)
 # ppt_generator     = false   # agent generates PowerPoint files from text
 # web_search        = false   # agent searches the web via external API
 # image_generation  = false   # agent generates images from descriptions

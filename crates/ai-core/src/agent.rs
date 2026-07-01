@@ -168,6 +168,8 @@ async fn handle_single_chat(
         }
     }
 
+    crate::kernel::set_provider_for_tools(provider_id);
+
     let tool_ctx = make_tool_context(ctx, config);
     let tools_schema = tool_registry.openai_tool_schemas();
 
@@ -284,6 +286,8 @@ async fn handle_roundtable(
         ctx.history.push(Message::user(combined_user));
 
         let tool_ctx = make_tool_context(ctx, config);
+
+        crate::kernel::set_provider_for_tools(provider_id);
 
         match run_chat_with_tools(ctx, provider.as_ref(), tool_registry, &tool_ctx, &tools_schema, output_tx).await {
             Ok(msg) => {

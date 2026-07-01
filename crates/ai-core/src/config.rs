@@ -101,7 +101,12 @@ pub struct ProviderConfig {
 
     #[serde(default = "default_max_tokens")]
     pub max_tokens: u32,
+
+    #[serde(default = "default_speed")]
+    pub speed: f64,
 }
+
+fn default_speed() -> f64 { 1.0 }
 
 fn default_temperature() -> f32 { 0.7 }
 fn default_max_tokens() -> u32 { 8192 }
@@ -262,6 +267,7 @@ impl AgentConfig {
 
         config.validate()?;
         config.resolve_persona_files()?;
+        config.register_speeds();
         Ok(config)
     }
 
@@ -271,7 +277,18 @@ impl AgentConfig {
         let mut config: Self = toml::from_str(&raw)?;
         config.validate()?;
         config.resolve_persona_files()?;
+        config.register_speeds();
         Ok(config)
+    }
+
+    fn register_speeds(&self) {
+        let map: std::collections::HashMap<String, f64> = self
+            .providers
+            .iter()
+            .map(|p| (p.id.clone(), p.speed))
+            .collect();
+        crate::kernel::register_speeds(map);
+        crate::kernel::tools::pause::install();
     }
 
     fn user_config_path() -> Option<PathBuf> {

@@ -1,9 +1,15 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock, RwLock};
 
 use crate::tool::Tool;
 
 static REGISTRY: OnceLock<RwLock<CapabilityRegistry>> = OnceLock::new();
+static PROVIDER_SPEEDS: OnceLock<RwLock<HashMap<String, f64>>> = OnceLock::new();
+
+thread_local! {
+    static CURRENT_PROVIDER: RefCell<String> = RefCell::new(String::new());
+}
 
 pub fn registry() -> &'static RwLock<CapabilityRegistry> {
     REGISTRY.get_or_init(|| RwLock::new(CapabilityRegistry::new()))
@@ -86,6 +92,27 @@ pub(crate) fn tools_for(names: &[String]) -> Vec<Arc<dyn Tool>> {
         }
     }
     tools
+}
+
+pub fn register_speeds(map: HashMap<String, f64>) {
+    PROVIDER_SPEEDS
+        .get_or_init(|| RwLock::new(HashMap::new()))
+        .write()
+        .expect("speed registry poisoned")
+        .extend(map);
+}
+
+pub(crate) fn set_provider_for_tools(id: &str) {
+    CURRENT_PROVIDER.with(|c| *c.borrow_mut() = id.to_string());
+}
+
+pub(crate) fn current_speed() -> f64 {
+    let id = CURRENT_PROVIDER.with(|c| c.borrow().clone());
+    PROVIDER_SPEEDS
+        .get()
+        .and_then(|m| m.read().ok())
+        .and_then(|map| map.get(&id).copied())
+        .unwrap_or(1.0)
 }
 
 #[macro_export]
